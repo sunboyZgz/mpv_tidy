@@ -7,6 +7,7 @@ mod mpv;
 mod organizer;
 mod parser;
 mod scanner;
+mod training;
 
 pub fn run() -> Result<(), tauri::Error> {
     tauri::Builder::default()
@@ -19,7 +20,9 @@ pub fn run() -> Result<(), tauri::Error> {
             commands::save_project_config,
             commands::reveal_path,
             commands::save_local_library_entry,
-            commands::load_local_library
+            commands::load_local_library,
+            commands::extract_parse_token_features,
+            commands::save_parse_training_sample
         ])
         .run(tauri::generate_context!())
 }

@@ -11,6 +11,20 @@ export type SubtitleRole = "primary" | "secondary" | "candidate";
 export type CollisionAction = "skip" | "replace" | "rename";
 export type ParseStatus = "accepted" | "lowConfidence" | "ambiguous" | "rejected";
 export type ParseCandidateSource = "rule" | "template";
+export type ParseSlotLabel =
+  | "episode"
+  | "season"
+  | "version"
+  | "hash"
+  | "resolution"
+  | "codec"
+  | "source"
+  | "language"
+  | "title"
+  | "noise"
+  | "special"
+  | "unknown";
+export type TokenFeatureKind = "alpha" | "number" | "separator" | "other";
 
 export interface ProjectConfig {
   projectName: string;
@@ -40,6 +54,46 @@ export interface ParseCandidate {
   confidence: number;
   source: ParseCandidateSource;
   note: string;
+}
+
+export interface TokenFeatures {
+  index: number;
+  text: string;
+  lower: string;
+  kind: TokenFeatureKind;
+  numberValue: number | null;
+  numberWidth: number | null;
+  previousToken: string | null;
+  nextToken: string | null;
+  isBracketed: boolean;
+  isEpisodeMarkerContext: boolean;
+  isSeasonMarkerContext: boolean;
+  isQualityOrSource: boolean;
+  isLanguageToken: boolean;
+  isSpecialToken: boolean;
+}
+
+export interface LabeledToken {
+  features: TokenFeatures;
+  label: ParseSlotLabel;
+}
+
+export interface ParseTrainingSample {
+  schemaVersion: number;
+  source: "userConfirmation" | "fixture";
+  path: string;
+  fileName: string;
+  extension: string;
+  confirmedEpisode: EpisodeKey | null;
+  note: string | null;
+  tokens: LabeledToken[];
+  createdAtUnix: number;
+}
+
+export interface SaveParseTrainingSampleRequest {
+  path: string;
+  confirmedEpisode: EpisodeKey | null;
+  note: string | null;
 }
 
 export interface ScannedVideo {

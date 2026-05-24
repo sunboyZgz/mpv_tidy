@@ -7,8 +7,10 @@ import type {
   OrganizeExecutionResult,
   OrganizePlan,
   SaveLocalLibraryRequest,
+  SaveParseTrainingSampleRequest,
   ScanAndMatchResult,
   ScanInput,
+  TokenFeatures,
 } from "../types";
 
 export interface MpvLaunchRequest {
@@ -50,6 +52,14 @@ export function saveLocalLibraryEntry(request: SaveLocalLibraryRequest) {
 
 export function loadLocalLibrary() {
   return invoke<LocalAnimeLibraryFile>("load_local_library");
+}
+
+export function extractParseTokenFeatures(path: string) {
+  return invoke<TokenFeatures[]>("extract_parse_token_features", { path });
+}
+
+export function saveParseTrainingSample(request: SaveParseTrainingSampleRequest) {
+  return invoke("save_parse_training_sample", { request });
 }
 
 export function launchMpv(request: MpvLaunchRequest) {

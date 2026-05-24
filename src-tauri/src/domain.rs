@@ -93,6 +93,32 @@ pub enum ParseCandidateSource {
     Template,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ParseSlotLabel {
+    Episode,
+    Season,
+    Version,
+    Hash,
+    Resolution,
+    Codec,
+    Source,
+    Language,
+    Title,
+    Noise,
+    Special,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TokenFeatureKind {
+    Alpha,
+    Number,
+    Separator,
+    Other,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ParseCandidate {
@@ -101,6 +127,61 @@ pub struct ParseCandidate {
     pub confidence: u8,
     pub source: ParseCandidateSource,
     pub note: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenFeatures {
+    pub index: usize,
+    pub text: String,
+    pub lower: String,
+    pub kind: TokenFeatureKind,
+    pub number_value: Option<u32>,
+    pub number_width: Option<usize>,
+    pub previous_token: Option<String>,
+    pub next_token: Option<String>,
+    pub is_bracketed: bool,
+    pub is_episode_marker_context: bool,
+    pub is_season_marker_context: bool,
+    pub is_quality_or_source: bool,
+    pub is_language_token: bool,
+    pub is_special_token: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LabeledToken {
+    pub features: TokenFeatures,
+    pub label: ParseSlotLabel,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ParseTrainingSampleSource {
+    UserConfirmation,
+    Fixture,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParseTrainingSample {
+    pub schema_version: u16,
+    pub source: ParseTrainingSampleSource,
+    pub path: PathBuf,
+    pub file_name: String,
+    pub extension: String,
+    pub confirmed_episode: Option<EpisodeKey>,
+    pub note: Option<String>,
+    pub tokens: Vec<LabeledToken>,
+    pub created_at_unix: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveParseTrainingSampleRequest {
+    pub path: PathBuf,
+    pub confirmed_episode: Option<EpisodeKey>,
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

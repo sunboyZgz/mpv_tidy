@@ -4,6 +4,7 @@ import {
   buildOrganizePlan,
   executeOrganizePlan,
   saveLocalLibraryEntry,
+  saveParseTrainingSample,
   scanAndMatch as scanAndMatchCommand,
   selectDirectories,
   selectDirectory,
@@ -369,7 +370,7 @@ export function ProjectHomePage({
     openDetailDrawer(item.episodeKey);
   }
 
-  function applyManualCorrection() {
+  async function applyManualCorrection() {
     const parsedEpisode = parseEpisodeKey(drawerDraft.episodeKey);
     if (!selectedMatch || !parsedEpisode) {
       setMessage("请输入类似 S01E03 的有效集数键。");
@@ -402,6 +403,18 @@ export function ProjectHomePage({
       });
       return { ...current, matches: nextMatches };
     });
+    if (isTauriRuntime() && drawerDraft.videoPath) {
+      try {
+        await saveParseTrainingSample({
+          path: drawerDraft.videoPath,
+          confirmedEpisode: parsedEpisode,
+          note: drawerDraft.note || "用户在项目首页手动修正 episode。",
+        });
+      } catch (error) {
+        setMessage(`已应用修正，但训练样本保存失败：${String(error)}`);
+        return;
+      }
+    }
     setSelectedEpisodeKey(formatEpisodeKey(parsedEpisode));
     setMessage("已应用手动修正到当前扫描结果。");
   }

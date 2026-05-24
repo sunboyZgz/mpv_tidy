@@ -1,4 +1,7 @@
-use crate::domain::{EpisodeKey, LanguageCode, ParseCandidate, ParseCandidateSource, ParseStatus};
+use crate::domain::{
+    EpisodeKey, LabeledToken, LanguageCode, ParseCandidate, ParseCandidateSource, ParseSlotLabel,
+    ParseStatus, ParseTrainingSample, ParseTrainingSampleSource, TokenFeatureKind, TokenFeatures,
+};
 use regex::Regex;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
@@ -64,26 +67,10 @@ struct CohortPath {
     special: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SlotLabel {
-    Episode,
-    Season,
-    Version,
-    Hash,
-    Resolution,
-    Codec,
-    Source,
-    Language,
-    Title,
-    Noise,
-    Special,
-    Unknown,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ParseEvidence {
     source: ParseCandidateSource,
-    label: SlotLabel,
+    label: ParseSlotLabel,
     confidence: u8,
     note: String,
 }
@@ -91,7 +78,7 @@ struct ParseEvidence {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct TemplateSlot {
     token_index: usize,
-    label: SlotLabel,
+    label: ParseSlotLabel,
     confidence: u8,
     evidence: ParseEvidence,
 }
@@ -172,7 +159,7 @@ pub fn parse_episode_batch(paths: &[PathBuf]) -> Vec<ParseDecision> {
         let episode_slots = template
             .slots
             .iter()
-            .filter(|slot| slot.label == SlotLabel::Episode)
+            .filter(|slot| slot.label == ParseSlotLabel::Episode)
             .collect::<Vec<_>>();
         if episode_slots.is_empty() {
             continue;
@@ -243,6 +230,41 @@ pub fn to_parse_candidates(candidates: &[EpisodeCandidate]) -> Vec<ParseCandidat
             note: candidate.note.clone(),
         })
         .collect()
+}
+
+pub fn token_features_for_path(path: &Path) -> Vec<TokenFeatures> {
+    tokens_to_features(&tokenize_file_stem(path))
+}
+
+pub fn build_training_sample(
+    path: &Path,
+    confirmed_episode: Option<EpisodeKey>,
+    note: Option<String>,
+    created_at_unix: u64,
+) -> ParseTrainingSample {
+    let tokens = tokenize_file_stem(path);
+    let episode_token_index = confirmed_episode
+        .and_then(|episode| confirmed_episode_token_index(&tokens, episode.episode));
+    let labeled_tokens = tokens_to_features(&tokens)
+        .into_iter()
+        .enumerate()
+        .map(|(index, features)| LabeledToken {
+            features,
+            label: label_token_for_training(&tokens, index, episode_token_index),
+        })
+        .collect::<Vec<_>>();
+
+    ParseTrainingSample {
+        schema_version: 1,
+        source: ParseTrainingSampleSource::UserConfirmation,
+        path: path.to_path_buf(),
+        file_name: file_name(path),
+        extension: extension(path),
+        confirmed_episode,
+        note,
+        tokens: labeled_tokens,
+        created_at_unix,
+    }
 }
 
 pub fn natural_path_cmp(left: &Path, right: &Path) -> Ordering {
@@ -416,13 +438,13 @@ fn infer_template_pattern(paths: &[CohortPath]) -> Option<TemplatePattern> {
             let label = classify_number_slot(&path.sequence.tokens, token_index);
             if matches!(
                 label,
-                SlotLabel::Noise
-                    | SlotLabel::Hash
-                    | SlotLabel::Resolution
-                    | SlotLabel::Codec
-                    | SlotLabel::Version
-                    | SlotLabel::Language
-                    | SlotLabel::Source
+                ParseSlotLabel::Noise
+                    | ParseSlotLabel::Hash
+                    | ParseSlotLabel::Resolution
+                    | ParseSlotLabel::Codec
+                    | ParseSlotLabel::Version
+                    | ParseSlotLabel::Language
+                    | ParseSlotLabel::Source
             ) {
                 continue;
             }
@@ -534,36 +556,36 @@ fn number_slot_is_noise(tokens: &[Token], index: usize) -> bool {
         || is_segment_or_page_number(tokens, index)
 }
 
-fn classify_number_slot(tokens: &[Token], index: usize) -> SlotLabel {
+fn classify_number_slot(tokens: &[Token], index: usize) -> ParseSlotLabel {
     if is_season_marker_context(tokens, index) {
-        SlotLabel::Season
+        ParseSlotLabel::Season
     } else if is_hash_number(tokens, index) {
-        SlotLabel::Hash
+        ParseSlotLabel::Hash
     } else if is_resolution(tokens, index) {
-        SlotLabel::Resolution
+        ParseSlotLabel::Resolution
     } else if is_codec_number(tokens, index) {
-        SlotLabel::Codec
+        ParseSlotLabel::Codec
     } else if is_version_number(tokens, index) {
-        SlotLabel::Version
+        ParseSlotLabel::Version
     } else if is_source_number(tokens, index) {
-        SlotLabel::Source
+        ParseSlotLabel::Source
     } else if is_language_number(tokens, index) {
-        SlotLabel::Language
+        ParseSlotLabel::Language
     } else if is_special_number(tokens, index) {
-        SlotLabel::Special
+        ParseSlotLabel::Special
     } else if is_title_number(tokens, index) {
-        SlotLabel::Title
+        ParseSlotLabel::Title
     } else if is_date_component(tokens, index)
         || is_bit_depth(tokens, index)
         || is_audio_number(tokens, index)
         || is_segment_or_page_number(tokens, index)
         || number_slot_is_noise(tokens, index)
     {
-        SlotLabel::Noise
+        ParseSlotLabel::Noise
     } else if is_episode_marker_context(tokens, index) || has_separator_context(tokens, index) {
-        SlotLabel::Episode
+        ParseSlotLabel::Episode
     } else {
-        SlotLabel::Unknown
+        ParseSlotLabel::Unknown
     }
 }
 
@@ -987,6 +1009,107 @@ fn build_token(text: &str, kind: TokenKind) -> Token {
     }
 }
 
+fn tokens_to_features(tokens: &[Token]) -> Vec<TokenFeatures> {
+    tokens
+        .iter()
+        .enumerate()
+        .map(|(index, token)| TokenFeatures {
+            index,
+            text: token.text.clone(),
+            lower: token.lower.clone(),
+            kind: token_feature_kind(token.kind),
+            number_value: token.number.as_ref().map(|number| number.value),
+            number_width: token.number.as_ref().map(|number| number.width),
+            previous_token: previous_meaningful(tokens, index).map(|value| value.lower.clone()),
+            next_token: next_meaningful(tokens, index).map(|value| value.lower.clone()),
+            is_bracketed: is_bracketed(tokens, index),
+            is_episode_marker_context: is_episode_marker_context(tokens, index),
+            is_season_marker_context: is_season_marker_context(tokens, index),
+            is_quality_or_source: known_quality_or_source(&token.lower),
+            is_language_token: known_language_token(&token.lower),
+            is_special_token: is_special_token(&token.lower),
+        })
+        .collect()
+}
+
+fn token_feature_kind(kind: TokenKind) -> TokenFeatureKind {
+    match kind {
+        TokenKind::Alpha => TokenFeatureKind::Alpha,
+        TokenKind::Number => TokenFeatureKind::Number,
+        TokenKind::Separator => TokenFeatureKind::Separator,
+        TokenKind::Other => TokenFeatureKind::Other,
+    }
+}
+
+fn confirmed_episode_token_index(tokens: &[Token], episode: u16) -> Option<usize> {
+    tokens
+        .iter()
+        .enumerate()
+        .filter(|(index, token)| {
+            token
+                .number
+                .as_ref()
+                .is_some_and(|number| number.value == u32::from(episode))
+                && !number_slot_is_noise(tokens, *index)
+        })
+        .max_by_key(|(index, _)| training_episode_score(tokens, *index))
+        .map(|(index, _)| index)
+}
+
+fn training_episode_score(tokens: &[Token], index: usize) -> u8 {
+    let mut score = 0u8;
+    if is_episode_marker_context(tokens, index) {
+        score = score.saturating_add(4);
+    }
+    if has_separator_context(tokens, index) {
+        score = score.saturating_add(2);
+    }
+    if next_meaningful(tokens, index).is_some_and(|token| known_quality_or_source(&token.lower)) {
+        score = score.saturating_add(1);
+    }
+    score
+}
+
+fn label_token_for_training(
+    tokens: &[Token],
+    index: usize,
+    episode_token_index: Option<usize>,
+) -> ParseSlotLabel {
+    if Some(index) == episode_token_index {
+        return ParseSlotLabel::Episode;
+    }
+    let Some(token) = tokens.get(index) else {
+        return ParseSlotLabel::Unknown;
+    };
+    if token.kind == TokenKind::Number {
+        classify_number_slot(tokens, index)
+    } else if known_quality_or_source(&token.lower) {
+        ParseSlotLabel::Source
+    } else if known_language_token(&token.lower) {
+        ParseSlotLabel::Language
+    } else if is_special_token(&token.lower) {
+        ParseSlotLabel::Special
+    } else if token.kind == TokenKind::Separator {
+        ParseSlotLabel::Noise
+    } else {
+        ParseSlotLabel::Unknown
+    }
+}
+
+fn file_name(path: &Path) -> String {
+    path.file_name()
+        .and_then(|value| value.to_str())
+        .map(ToOwned::to_owned)
+        .unwrap_or_default()
+}
+
+fn extension(path: &Path) -> String {
+    path.extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
+        .unwrap_or_default()
+}
+
 fn parse_season(text: &str) -> Option<u16> {
     let patterns = [
         r"(?i)(?:^|[^a-z0-9])s0*(\d{1,2})(?:e\d{1,3}|[^a-z0-9]|$)",
@@ -1241,8 +1364,9 @@ fn build_natural_part(text: &str, is_number: bool) -> NaturalPart {
 
 #[cfg(test)]
 mod tests {
+    use super::{build_training_sample, token_features_for_path};
     use super::{detect_language, natural_str_cmp, parse_episode, parse_episode_batch};
-    use crate::domain::{EpisodeKey, LanguageCode, ParseStatus};
+    use crate::domain::{EpisodeKey, LanguageCode, ParseSlotLabel, ParseStatus, TokenFeatureKind};
     use std::cmp::Ordering;
     use std::error::Error;
     use std::path::PathBuf;
@@ -1444,6 +1568,36 @@ mod tests {
             natural_str_cmp("Show - 07.mkv", "Show - 8.mkv"),
             Ordering::Less
         );
+    }
+
+    #[test]
+    fn exports_token_features_for_future_sequence_labeling() {
+        let features = token_features_for_path(&PathBuf::from("Show - 03v2 [1080p].mkv"));
+
+        assert!(features.iter().any(|feature| {
+            feature.kind == TokenFeatureKind::Number
+                && feature.number_value == Some(3)
+                && feature.next_token.as_deref() == Some("v")
+        }));
+        assert!(features
+            .iter()
+            .any(|feature| feature.is_quality_or_source || feature.number_value == Some(1080)));
+    }
+
+    #[test]
+    fn builds_user_confirmation_training_sample() {
+        let sample = build_training_sample(
+            &PathBuf::from("Show - 03v2 [1080p].mkv"),
+            Some(EpisodeKey::new(1, 3)),
+            Some("confirmed in UI".to_owned()),
+            1_777_000_000,
+        );
+
+        assert_eq!(sample.schema_version, 1);
+        assert_eq!(sample.confirmed_episode, Some(EpisodeKey::new(1, 3)));
+        assert!(sample.tokens.iter().any(|token| {
+            token.label == ParseSlotLabel::Episode && token.features.number_value == Some(3)
+        }));
     }
 
     #[test]

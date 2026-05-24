@@ -1,9 +1,10 @@
 use crate::domain::{
     BuildOrganizePlanRequest, MpvLaunchRequest, OrganizeExecutionResult, OrganizePlan,
-    ProjectConfig, SaveLocalLibraryRequest, ScanAndMatchResult, ScanInput,
+    ParseTrainingSample, ProjectConfig, SaveLocalLibraryRequest, SaveParseTrainingSampleRequest,
+    ScanAndMatchResult, ScanInput, TokenFeatures,
 };
 use crate::error::to_user_error;
-use crate::{library, matcher, mpv, organizer, scanner};
+use crate::{library, matcher, mpv, organizer, scanner, training};
 use std::fs;
 use std::path::PathBuf;
 use tauri::Manager;
@@ -61,10 +62,32 @@ pub fn load_local_library(
     library::load_local_library(&library_path).map_err(to_user_error)
 }
 
+#[tauri::command]
+pub fn extract_parse_token_features(path: PathBuf) -> Result<Vec<TokenFeatures>, String> {
+    Ok(crate::parser::token_features_for_path(&path))
+}
+
+#[tauri::command]
+pub fn save_parse_training_sample(
+    app: tauri::AppHandle,
+    request: SaveParseTrainingSampleRequest,
+) -> Result<ParseTrainingSample, String> {
+    let training_path = parse_training_path(&app).map_err(to_user_error)?;
+    training::save_parse_training_sample(&training_path, request).map_err(to_user_error)
+}
+
 fn local_library_path(app: &tauri::AppHandle) -> Result<PathBuf, crate::error::AppError> {
     let data_dir = app
         .path()
         .app_data_dir()
         .map_err(|error| crate::error::AppError::LibrarySave(error.to_string()))?;
     Ok(data_dir.join("anime-library.json"))
+}
+
+fn parse_training_path(app: &tauri::AppHandle) -> Result<PathBuf, crate::error::AppError> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| crate::error::AppError::LibrarySave(error.to_string()))?;
+    Ok(data_dir.join("parser-training-samples.jsonl"))
 }
