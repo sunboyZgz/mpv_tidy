@@ -1,0 +1,823 @@
+模板归纳能力边界测试用例集 v1
+用途：测试从一组相似字符串中归纳公共模板、变量槽位、可选槽位、离群项和槽位语义的能力。
+说明：这些用例尽量覆盖常见网络资源命名规则，但不存在真正“覆盖所有命名规则”的测试集；实际系统仍需要结合聚类、外部元数据和人工确认。
+
+推荐字段约定：
+- {series}: 作品/系列名
+- {season}: 季数
+- {episode}: 集数
+- {absolute_episode}: 绝对集数
+- {version}: 修正版/版本号，例如 v2
+- {hash}: CRC/MD5/SHA-like 校验或随机散列
+- {resolution}: 720p/1080p/2160p/4K 等
+- {codec}: x264/x265/H.264/H.265/HEVC/AVC 等
+- {language}: zh-Hans/CHS/SC/en/ja-jp 等
+- {source}: WEB-DL/BluRay/NF/CR/AMZN 等
+- {?}: 表示可选槽位，例如 {version?}
+
+================================================================================
+
+CASE 001 | Fansub 标准横杠 + version + hash
+samples:
+  - [SubsPlease] Jujutsu Kaisen - 01v2 (1080p) [2D6390A9].mkv
+  - [SubsPlease] Jujutsu Kaisen - 02 (1080p) [A7C8D012].mkv
+  - [SubsPlease] Jujutsu Kaisen - 03 (1080p) [9F13B7AE].mkv
+expected_template: [SubsPlease] Jujutsu Kaisen - {episode}{version?} (1080p) [{hash}].mkv
+notes: 01v2 要拆成 episode=01 + version=v2；末尾 8 位十六进制是 hash。
+--------------------------------------------------------------------------------
+CASE 002 | SxxExx 标准美剧格式
+samples:
+  - Show.Name.S01E01.1080p.WEB-DL.H264-GRP.mkv
+  - Show.Name.S01E02.1080p.WEB-DL.H264-GRP.mkv
+  - Show.Name.S01E03.1080p.WEB-DL.H264-GRP.mkv
+expected_template: Show.Name.S{season}E{episode}.1080p.WEB-DL.H264-GRP.mkv
+notes: S01E01 的 season/episode 置信度应高于 1080/H264。
+--------------------------------------------------------------------------------
+CASE 003 | SxxExx + episode title
+samples:
+  - Show.Name.S02E01.The.Beginning.1080p.NF.WEB-DL.DDP5.1.H.264-GRP.mkv
+  - Show.Name.S02E02.New.Friend.1080p.NF.WEB-DL.DDP5.1.H.264-GRP.mkv
+  - Show.Name.S02E03.Return.Home.1080p.NF.WEB-DL.DDP5.1.H.264-GRP.mkv
+expected_template: Show.Name.S{season}E{episode}.{episode_title}.1080p.NF.WEB-DL.DDP5.1.H.264-GRP.mkv
+notes: title 是变化槽，但不应被误识别成 group/source。
+--------------------------------------------------------------------------------
+CASE 004 | Season 字样 + Episode 字样
+samples:
+  - Example Show Season 1 Episode 01 1080p.mkv
+  - Example Show Season 1 Episode 02 1080p.mkv
+  - Example Show Season 1 Episode 03 1080p.mkv
+expected_template: Example Show Season {season} Episode {episode} 1080p.mkv
+notes: 英文自然语言 season/episode。
+--------------------------------------------------------------------------------
+CASE 005 | 中文 第几季 第几话
+samples:
+  - 咒术回战 第1季 第01话 简中 1080P.mp4
+  - 咒术回战 第1季 第02话 简中 1080P.mp4
+  - 咒术回战 第1季 第03话 简中 1080P.mp4
+expected_template: 咒术回战 第{season}季 第{episode}话 简中 1080P.mp4
+notes: 中文话/季标记；1080P 是分辨率，不是 episode。
+--------------------------------------------------------------------------------
+CASE 006 | 日文 第n話 + 每集标题
+samples:
+  - 呪術廻戦.第1話.両面宿儺.AMZN.WEB-DL.ja-jp.srt
+  - 呪術廻戦.第2話.自分のために.AMZN.WEB-DL.ja-jp.srt
+  - 呪術廻戦.第3話.鉄骨娘.AMZN.WEB-DL.ja-jp.srt
+expected_template: 呪術廻戦.第{episode}話.{episode_title}.AMZN.WEB-DL.ja-jp.srt
+notes: title 是日文字符串；语言 ja-jp 可作为 language 常量。
+--------------------------------------------------------------------------------
+CASE 007 | 中括号组多标签
+samples:
+  - [DBD-Raws][咒术回战][01][1080P][BDRip][HEVC-10bit][FLAC].SC.ass
+  - [DBD-Raws][咒术回战][02][1080P][BDRip][HEVC-10bit][FLAC].SC.ass
+  - [DBD-Raws][咒术回战][03][1080P][BDRip][HEVC-10bit][FLAC].SC.ass
+expected_template: [DBD-Raws][咒术回战][{episode}][1080P][BDRip][HEVC-10bit][FLAC].SC.ass
+notes: [01] 是 episode；[1080P] 不应被当作 episode；SC 是语言。
+--------------------------------------------------------------------------------
+CASE 008 | 无分隔符 E01
+samples:
+  - JujutsuKaisenE01BD1080p.mkv
+  - JujutsuKaisenE02BD1080p.mkv
+  - JujutsuKaisenE03BD1080p.mkv
+expected_template: JujutsuKaisenE{episode}BD1080p.mkv
+notes: Tokenizer 需要能从 E01BD 中切出 E + episode + BD。
+--------------------------------------------------------------------------------
+CASE 009 | 纯数字 episode + 点分隔
+samples:
+  - Jujutsu.Kaisen.01.1080p.WEB-DL.mkv
+  - Jujutsu.Kaisen.02.1080p.WEB-DL.mkv
+  - Jujutsu.Kaisen.03.1080p.WEB-DL.mkv
+expected_template: Jujutsu.Kaisen.{episode}.1080p.WEB-DL.mkv
+notes: 孤立两位数字且单调递增，置信度高。
+--------------------------------------------------------------------------------
+CASE 010 | episode + v2/v3 版本混合
+samples:
+  - Show - 01v2 [1080p].mkv
+  - Show - 02v3 [1080p].mkv
+  - Show - 03 [1080p].mkv
+expected_template: Show - {episode}{version?} [1080p].mkv
+notes: version 为可选槽；v2/v3 不应影响 episode。
+--------------------------------------------------------------------------------
+CASE 011 | Part/Chapter 作为集数同义
+samples:
+  - Documentary.Part.01.1080p.WEB.mkv
+  - Documentary.Part.02.1080p.WEB.mkv
+  - Documentary.Part.03.1080p.WEB.mkv
+expected_template: Documentary.Part.{episode}.1080p.WEB.mkv
+notes: Part 可以映射为 episode/part，取决于业务 schema。
+--------------------------------------------------------------------------------
+CASE 012 | EP 大写前缀
+samples:
+  - Anime EP01 720p x264 AAC.mp4
+  - Anime EP02 720p x264 AAC.mp4
+  - Anime EP03 720p x264 AAC.mp4
+expected_template: Anime EP{episode} 720p x264 AAC.mp4
+notes: EP 前缀优先于 720/x264。
+--------------------------------------------------------------------------------
+CASE 013 | E 小写前缀 + 年份干扰
+samples:
+  - Anime.2024.e01.1080p.mkv
+  - Anime.2024.e02.1080p.mkv
+  - Anime.2024.e03.1080p.mkv
+expected_template: Anime.2024.e{episode}.1080p.mkv
+notes: 2024 是年份常量，不是 season/episode。
+--------------------------------------------------------------------------------
+CASE 014 | Season 文件夹 + episode 文件名
+samples:
+  - Show/Season 01/Show - 01.mkv
+  - Show/Season 01/Show - 02.mkv
+  - Show/Season 01/Show - 03.mkv
+expected_template: Show/Season {season}/Show - {episode}.mkv
+notes: 路径组件也要参与模板归纳。
+--------------------------------------------------------------------------------
+CASE 015 | 多季混在同目录
+samples:
+  - Show.S01E01.1080p.mkv
+  - Show.S01E02.1080p.mkv
+  - Show.S02E01.1080p.mkv
+  - Show.S02E02.1080p.mkv
+expected_template: Show.S{season}E{episode}.1080p.mkv
+notes: episode 非全局递增，但在 season 内递增。
+--------------------------------------------------------------------------------
+CASE 016 | 单季但文件夹是 S2
+samples:
+  - JJK/S2/[Group] JJK - 01 [1080p].mkv
+  - JJK/S2/[Group] JJK - 02 [1080p].mkv
+  - JJK/S2/[Group] JJK - 03 [1080p].mkv
+expected_template: JJK/S{season}/[Group] JJK - {episode} [1080p].mkv
+notes: season 从父目录提取，文件名只含 episode。
+--------------------------------------------------------------------------------
+CASE 017 | 绝对集数 + 季内集数冲突
+samples:
+  - JJK.S02E01.Episode.25.1080p.mkv
+  - JJK.S02E02.Episode.26.1080p.mkv
+  - JJK.S02E03.Episode.27.1080p.mkv
+expected_template: JJK.S{season}E{episode}.Episode.{absolute_episode}.1080p.mkv
+notes: S02E01 和 Episode25 都合理，应保留两个槽位或按业务优先级。
+--------------------------------------------------------------------------------
+CASE 018 | OVA / SP 离群项
+samples:
+  - Show - 01 [1080p].mkv
+  - Show - 02 [1080p].mkv
+  - Show - OVA [1080p].mkv
+  - Show - 03 [1080p].mkv
+expected_template: Show - {episode_or_special} [1080p].mkv
+notes: OVA 是 special/outlier，不应破坏主模板。
+--------------------------------------------------------------------------------
+CASE 019 | NCOP/NCED 特典干扰
+samples:
+  - Show - 01 [BDRip 1080p].mkv
+  - Show - 02 [BDRip 1080p].mkv
+  - Show - NCOP [BDRip 1080p].mkv
+  - Show - NCED [BDRip 1080p].mkv
+expected_template: Show - {episode_or_extra} [BDRip 1080p].mkv
+notes: NCOP/NCED 应识别为 extra，不是 episode。
+--------------------------------------------------------------------------------
+CASE 020 | PV/Trailer 干扰
+samples:
+  - MovieSeries - 01.mkv
+  - MovieSeries - 02.mkv
+  - MovieSeries - PV01.mkv
+  - MovieSeries - Trailer.mkv
+expected_template: MovieSeries - {episode_or_extra}.mkv
+notes: PV01 可能有数字，但语义是 promotional video。
+--------------------------------------------------------------------------------
+CASE 021 | 10bit 干扰
+samples:
+  - Show.E01.1080p.10bit.x265.mkv
+  - Show.E02.1080p.10bit.x265.mkv
+  - Show.E03.1080p.10bit.x265.mkv
+expected_template: Show.E{episode}.1080p.10bit.x265.mkv
+notes: 10bit 不应被当成 episode。
+--------------------------------------------------------------------------------
+CASE 022 | H.264/H.265 干扰
+samples:
+  - Show - 01 H.264 AAC.mkv
+  - Show - 02 H.264 AAC.mkv
+  - Show - 03 H.264 AAC.mkv
+expected_template: Show - {episode} H.264 AAC.mkv
+notes: 264 是 codec，不是第 264 集。
+--------------------------------------------------------------------------------
+CASE 023 | x264/x265 干扰
+samples:
+  - Show.01.1080p.x264.mkv
+  - Show.02.1080p.x264.mkv
+  - Show.03.1080p.x265.mkv
+expected_template: Show.{episode}.1080p.{codec}.mkv
+notes: codec 可以变化，但不应抢 episode。
+--------------------------------------------------------------------------------
+CASE 024 | 2160p / 4K 干扰
+samples:
+  - Show.S01E01.2160p.WEB-DL.mkv
+  - Show.S01E02.2160p.WEB-DL.mkv
+  - Show.S01E03.2160p.WEB-DL.mkv
+expected_template: Show.S{season}E{episode}.2160p.WEB-DL.mkv
+notes: 2160 是 resolution。
+--------------------------------------------------------------------------------
+CASE 025 | 日期发布格式
+samples:
+  - News.Show.2024.07.01.1080p.WEB.mkv
+  - News.Show.2024.07.02.1080p.WEB.mkv
+  - News.Show.2024.07.03.1080p.WEB.mkv
+expected_template: News.Show.{date}.1080p.WEB.mkv
+notes: 日期序列不一定是 episode，应识别为 date。
+--------------------------------------------------------------------------------
+CASE 026 | 年月日 + episode 同时存在
+samples:
+  - Anime.2024-07-01.E01.1080p.mkv
+  - Anime.2024-07-08.E02.1080p.mkv
+  - Anime.2024-07-15.E03.1080p.mkv
+expected_template: Anime.{date}.E{episode}.1080p.mkv
+notes: 日期与 episode 均为变量槽。
+--------------------------------------------------------------------------------
+CASE 027 | 阿拉伯数字与中文数字混合
+samples:
+  - 动画 第1话.mp4
+  - 动画 第02话.mp4
+  - 动画 第三话.mp4
+expected_template: 动画 第{episode}话.mp4
+notes: 需要可选支持中文数字归一化。
+--------------------------------------------------------------------------------
+CASE 028 | 全角数字与全角符号
+samples:
+  - 動畫－０１（１０８０ｐ）.mp4
+  - 動畫－０２（１０８０ｐ）.mp4
+  - 動畫－０３（１０８０ｐ）.mp4
+expected_template: 動畫－{episode}（１０８０ｐ）.mp4
+notes: Normalizer 应处理全角数字，也可保留原符号。
+--------------------------------------------------------------------------------
+CASE 029 | 不同破折号
+samples:
+  - Show – 01 – 1080p.mkv
+  - Show - 02 - 1080p.mkv
+  - Show — 03 — 1080p.mkv
+expected_template: Show {dash} {episode} {dash} 1080p.mkv
+notes: 破折号可归一化为 '-' 或保留为 separator 槽。
+--------------------------------------------------------------------------------
+CASE 030 | 空格数量不一致
+samples:
+  - Show  -  01  1080p.mkv
+  - Show - 02 1080p.mkv
+  - Show    -    03    1080p.mkv
+expected_template: Show - {episode} 1080p.mkv
+notes: 连续空格应归一化。
+--------------------------------------------------------------------------------
+CASE 031 | 多 release group 同作品同模板
+samples:
+  - [GroupA] Show - 01 [1080p].mkv
+  - [GroupB] Show - 02 [1080p].mkv
+  - [GroupA] Show - 03 [1080p].mkv
+expected_template: [{release_group}] Show - {episode} [1080p].mkv
+notes: release_group 是变量槽，但 episode 仍要识别。
+--------------------------------------------------------------------------------
+CASE 032 | 同一集多版本/修正版
+samples:
+  - Show - 01 [1080p].mkv
+  - Show - 01v2 [1080p].mkv
+  - Show - 02 [1080p].mkv
+  - Show - 02v2 [1080p].mkv
+expected_template: Show - {episode}{version?} [1080p].mkv
+notes: episode 不唯一；version 用于区分重复。
+--------------------------------------------------------------------------------
+CASE 033 | CRC hash 在圆括号
+samples:
+  - [Group] Show 01 (A1B2C3D4).mkv
+  - [Group] Show 02 (E5F6A7B8).mkv
+  - [Group] Show 03 (9ABCDEFF).mkv
+expected_template: [Group] Show {episode} ({hash}).mkv
+notes: hash 不一定在方括号。
+--------------------------------------------------------------------------------
+CASE 034 | Hash 长度不固定
+samples:
+  - Show - 01 [abc123].mkv
+  - Show - 02 [4F2A9BCD].mkv
+  - Show - 03 [d41d8cd98f].mkv
+expected_template: Show - {episode} [{hash}].mkv
+notes: hash-like 长度可变，需结合位置和字符集。
+--------------------------------------------------------------------------------
+CASE 035 | 文件名包含作品编号
+samples:
+  - Project-86 - 01 [1080p].mkv
+  - Project-86 - 02 [1080p].mkv
+  - Project-86 - 03 [1080p].mkv
+expected_template: Project-86 - {episode} [1080p].mkv
+notes: 作品名中的 86 不应被当作 episode。
+--------------------------------------------------------------------------------
+CASE 036 | 字幕语言后缀 zh-Hans
+samples:
+  - Show.S01E01.zh-Hans.ass
+  - Show.S01E02.zh-Hans.ass
+  - Show.S01E03.zh-Hans.ass
+expected_template: Show.S{season}E{episode}.{language}.ass
+notes: language 常量或语言槽位；zh-Hans 不应拆错。
+--------------------------------------------------------------------------------
+CASE 037 | 字幕多语言变化
+samples:
+  - Show.S01E01.zh-Hans.ass
+  - Show.S01E01.zh-Hant.ass
+  - Show.S01E01.en.ass
+  - Show.S01E01.ja-jp.ass
+expected_template: Show.S{season}E{episode}.{language}.ass
+notes: 同一集不同语言，episode 常量，language 变化。
+--------------------------------------------------------------------------------
+CASE 038 | 语言从父目录识别
+samples:
+  - subs/简中/Show.S01E01.ass
+  - subs/简中/Show.S01E02.ass
+  - subs/简中/Show.S01E03.ass
+expected_template: subs/{language}/Show.S{season}E{episode}.ass
+notes: 语言在目录，不在文件名。
+--------------------------------------------------------------------------------
+CASE 039 | 字幕格式变化 ass/srt/vtt
+samples:
+  - Show.S01E01.zh-Hans.ass
+  - Show.S01E02.zh-Hans.srt
+  - Show.S01E03.zh-Hans.vtt
+expected_template: Show.S{season}E{episode}.zh-Hans.{extension}
+notes: 扩展名可作为格式槽。
+--------------------------------------------------------------------------------
+CASE 040 | 简繁英文别名
+samples:
+  - Show.01.CHS.ass
+  - Show.02.CHT.ass
+  - Show.03.ENG.ass
+expected_template: Show.{episode}.{language}.ass
+notes: CHS/CHT/ENG 映射为语言。
+--------------------------------------------------------------------------------
+CASE 041 | SC/TC/JP/EN 孤立 token
+samples:
+  - Show - 01.SC.ass
+  - Show - 02.TC.ass
+  - Show - 03.EN.ass
+expected_template: Show - {episode}.{language}.ass
+notes: SC/TC/EN 是语言，不能被当作 release group。
+--------------------------------------------------------------------------------
+CASE 042 | 字幕标题中含数字
+samples:
+  - Show.S01E01.Title.01.ass
+  - Show.S01E02.Title.02.ass
+  - Show.S01E03.Title.03.ass
+expected_template: Show.S{season}E{episode}.Title.{title_number}.ass
+notes: 两个数字槽位可能同步递增，SxxExx 优先为 episode。
+--------------------------------------------------------------------------------
+CASE 043 | 字幕延迟/修正版本
+samples:
+  - Show.S01E01.zh-Hans.delay+500ms.ass
+  - Show.S01E02.zh-Hans.delay-200ms.ass
+  - Show.S01E03.zh-Hans.ass
+expected_template: Show.S{season}E{episode}.zh-Hans{timing_adjust?}.ass
+notes: 可选 timing adjust。
+--------------------------------------------------------------------------------
+CASE 044 | 字幕组 + 字幕语言 + hash
+samples:
+  - [SubGroup] Show - 01 [CHS][A1B2C3D4].ass
+  - [SubGroup] Show - 02 [CHS][E5F6A7B8].ass
+  - [SubGroup] Show - 03 [CHS][9ABCDEFF].ass
+expected_template: [SubGroup] Show - {episode} [{language}][{hash}].ass
+notes: 相邻方括号需要拆开。
+--------------------------------------------------------------------------------
+CASE 045 | 双语字幕
+samples:
+  - Show.S01E01.zh-Hans&ja.ass
+  - Show.S01E02.zh-Hans&ja.ass
+  - Show.S01E03.zh-Hans&ja.ass
+expected_template: Show.S{season}E{episode}.{language_pair}.ass
+notes: language_pair 可作为单槽或拆成两个语言。
+--------------------------------------------------------------------------------
+CASE 046 | SDH/Forced 字幕标签
+samples:
+  - Movie.2024.1080p.en.forced.srt
+  - Movie.2024.1080p.en.sdh.srt
+  - Movie.2024.1080p.en.full.srt
+expected_template: Movie.2024.1080p.{language}.{subtitle_type}.srt
+notes: forced/sdh/full 是字幕类型，不是语言。
+--------------------------------------------------------------------------------
+CASE 047 | 章节字幕分段
+samples:
+  - Show.E01.part1.zh.srt
+  - Show.E01.part2.zh.srt
+  - Show.E01.part3.zh.srt
+expected_template: Show.E{episode}.part{part}.zh.srt
+notes: part 是分段，不是 episode。
+--------------------------------------------------------------------------------
+CASE 048 | CD1/CD2 字幕
+samples:
+  - Movie.Name.2001.CD1.en.srt
+  - Movie.Name.2001.CD2.en.srt
+  - Movie.Name.2001.CD3.en.srt
+expected_template: Movie.Name.2001.CD{disc}.en.srt
+notes: CD1/CD2 是 disc/part，不是 episode。
+--------------------------------------------------------------------------------
+CASE 049 | 字幕内嵌来源标签
+samples:
+  - Show.S01E01.NF.zh.srt
+  - Show.S01E02.CR.zh.srt
+  - Show.S01E03.BD.zh.srt
+expected_template: Show.S{season}E{episode}.{source}.zh.srt
+notes: NF/CR/BD 是 source。
+--------------------------------------------------------------------------------
+CASE 050 | 字幕文件名只有 episode 和语言
+samples:
+  - 01.zh-Hans.ass
+  - 02.zh-Hans.ass
+  - 03.zh-Hans.ass
+expected_template: {episode}.zh-Hans.ass
+notes: 样本上下文不足，作品名需从目录或外部元数据补充。
+--------------------------------------------------------------------------------
+CASE 051 | 电影 年份 + 质量 + 来源
+samples:
+  - Movie.Name.2024.1080p.WEB-DL.DDP5.1.H.264-GRP.mkv
+  - Movie.Name.2024.2160p.WEB-DL.DDP5.1.H.265-GRP.mkv
+expected_template: Movie.Name.{year}.{resolution}.WEB-DL.DDP5.1.{codec}-GRP.mkv
+notes: 电影年份不是 season/episode。
+--------------------------------------------------------------------------------
+CASE 052 | 电影标题内含数字
+samples:
+  - Blade.Runner.2049.2017.1080p.BluRay.x264.mkv
+  - Blade.Runner.2049.2017.2160p.BluRay.x265.mkv
+expected_template: Blade.Runner.2049.{year}.{resolution}.BluRay.{codec}.mkv
+notes: 2049 是标题常量，2017 是 year。
+--------------------------------------------------------------------------------
+CASE 053 | 分辨率多版本
+samples:
+  - Movie.2024.720p.WEB.mkv
+  - Movie.2024.1080p.WEB.mkv
+  - Movie.2024.2160p.WEB.mkv
+expected_template: Movie.2024.{resolution}.WEB.mkv
+notes: 无 episode，只有 resolution 变化。
+--------------------------------------------------------------------------------
+CASE 054 | HDR/DV 标签变化
+samples:
+  - Movie.2024.2160p.WEB-DL.HDR10.mkv
+  - Movie.2024.2160p.WEB-DL.DV.mkv
+  - Movie.2024.2160p.WEB-DL.HDR10Plus.mkv
+expected_template: Movie.2024.2160p.WEB-DL.{hdr_format}.mkv
+notes: HDR 类标签应识别为视频特性。
+--------------------------------------------------------------------------------
+CASE 055 | 音频声道变化
+samples:
+  - Movie.2024.1080p.WEB-DL.AAC2.0.mkv
+  - Movie.2024.1080p.WEB-DL.DDP5.1.mkv
+  - Movie.2024.1080p.WEB-DL.TrueHD7.1.mkv
+expected_template: Movie.2024.1080p.WEB-DL.{audio}.mkv
+notes: 2.0/5.1/7.1 是 audio channel，不是 episode。
+--------------------------------------------------------------------------------
+CASE 056 | Remux / Encode 版本
+samples:
+  - Movie.2024.1080p.BluRay.REMUX.AVC.DTS-HD.MA.5.1.mkv
+  - Movie.2024.1080p.BluRay.x264.AAC.mkv
+expected_template: Movie.2024.1080p.BluRay.{release_type}.{video_codec}.{audio}.mkv
+notes: 模板可能需要允许缺失字段。
+--------------------------------------------------------------------------------
+CASE 057 | TV daily show 日期
+samples:
+  - Daily.Show.2026.05.20.1080p.WEB.mkv
+  - Daily.Show.2026.05.21.1080p.WEB.mkv
+  - Daily.Show.2026.05.22.1080p.WEB.mkv
+expected_template: Daily.Show.{date}.1080p.WEB.mkv
+notes: 日期为主键，不是 episode。
+--------------------------------------------------------------------------------
+CASE 058 | 体育赛事双方队名
+samples:
+  - TeamA.vs.TeamB.2026.05.20.1080p.WEB.mkv
+  - TeamC.vs.TeamD.2026.05.21.1080p.WEB.mkv
+  - TeamE.vs.TeamF.2026.05.22.1080p.WEB.mkv
+expected_template: {team_a}.vs.{team_b}.{date}.1080p.WEB.mkv
+notes: 标题部分变化，不一定是 episode。
+--------------------------------------------------------------------------------
+CASE 059 | 课程视频章节
+samples:
+  - Go-Course-Lesson-01-Intro.mp4
+  - Go-Course-Lesson-02-Slices.mp4
+  - Go-Course-Lesson-03-Concurrency.mp4
+expected_template: Go-Course-Lesson-{lesson}-{lesson_title}.mp4
+notes: lesson 可映射为 episode-like。
+--------------------------------------------------------------------------------
+CASE 060 | 课程模块 + 课时
+samples:
+  - RustCourse/M01/001-installation.mp4
+  - RustCourse/M01/002-ownership.mp4
+  - RustCourse/M02/001-lifetimes.mp4
+expected_template: RustCourse/M{module}/{lesson}-{lesson_title}.mp4
+notes: lesson 在 module 内重置。
+--------------------------------------------------------------------------------
+CASE 061 | YouTube 下载文件
+samples:
+  - Channel - 2024-05-01 - Video Title [abcDEF12345].mp4
+  - Channel - 2024-05-02 - Another Video [zxy987LMNOP].mp4
+  - Channel - 2024-05-03 - Third Video [QwErTy12345].mp4
+expected_template: Channel - {date} - {video_title} [{video_id}].mp4
+notes: video_id 不是 hash，但类似随机 ID。
+--------------------------------------------------------------------------------
+CASE 062 | Bilibili 分 P
+samples:
+  - BV1xx411c7mD_p1_开场.mp4
+  - BV1xx411c7mD_p2_正文.mp4
+  - BV1xx411c7mD_p3_结尾.mp4
+expected_template: {bvid}_p{part}_{part_title}.mp4
+notes: p1/p2 是 part，不一定是 episode。
+--------------------------------------------------------------------------------
+CASE 063 | HLS episode variant path
+samples:
+  - media/jjk/season-01/episode-01/hls/720p-fast/index.m3u8
+  - media/jjk/season-01/episode-02/hls/720p-fast/index.m3u8
+  - media/jjk/season-01/episode-03/hls/720p-fast/index.m3u8
+expected_template: media/{series}/season-{season}/episode-{episode}/hls/720p-fast/index.m3u8
+notes: season/episode 都在路径中。
+--------------------------------------------------------------------------------
+CASE 064 | HLS 多清晰度 variant
+samples:
+  - media/jjk/s01/e01/hls/720p-fast/index.m3u8
+  - media/jjk/s01/e01/hls/1080p/index.m3u8
+  - media/jjk/s01/e01/hls/2k-high/index.m3u8
+expected_template: media/{series}/s{season}/e{episode}/hls/{variant}/index.m3u8
+notes: variant 是质量/编码配置。
+--------------------------------------------------------------------------------
+CASE 065 | HLS segment 序号
+samples:
+  - episode-01/hls/segment_00000.ts
+  - episode-01/hls/segment_00001.ts
+  - episode-01/hls/segment_00002.ts
+expected_template: episode-{episode}/hls/segment_{segment}.ts
+notes: segment 不是 episode。
+--------------------------------------------------------------------------------
+CASE 066 | fMP4 segment
+samples:
+  - e01/1080p/seg-1.m4s
+  - e01/1080p/seg-2.m4s
+  - e01/1080p/seg-3.m4s
+expected_template: e{episode}/1080p/seg-{segment}.m4s
+notes: segment 递增但由上下文 seg 标记区分。
+--------------------------------------------------------------------------------
+CASE 067 | Master playlist
+samples:
+  - media/show/e01/hls/master.m3u8
+  - media/show/e02/hls/master.m3u8
+  - media/show/e03/hls/master.m3u8
+expected_template: media/{series}/e{episode}/hls/master.m3u8
+notes: master 是固定资源名。
+--------------------------------------------------------------------------------
+CASE 068 | 封面图路径
+samples:
+  - covers/jjk/s01/e01/poster.jpg
+  - covers/jjk/s01/e02/poster.jpg
+  - covers/jjk/s01/e03/poster.jpg
+expected_template: covers/{series}/s{season}/e{episode}/poster.jpg
+notes: 图片资源也要跟 episode 对齐。
+--------------------------------------------------------------------------------
+CASE 069 | 预览图 sprite
+samples:
+  - preview/e01/sprite_0001.jpg
+  - preview/e01/sprite_0002.jpg
+  - preview/e01/sprite_0003.jpg
+expected_template: preview/e{episode}/sprite_{sprite_index}.jpg
+notes: sprite_index 不是 episode。
+--------------------------------------------------------------------------------
+CASE 070 | 对象存储 UUID + 业务路径
+samples:
+  - s3://bucket/media/7f3e/show/s01/e01/master.m3u8
+  - s3://bucket/media/8a9b/show/s01/e02/master.m3u8
+  - s3://bucket/media/1c2d/show/s01/e03/master.m3u8
+expected_template: s3://bucket/media/{object_prefix}/{series}/s{season}/e{episode}/master.m3u8
+notes: 随机前缀和 episode 同时存在。
+--------------------------------------------------------------------------------
+CASE 071 | 临时转码输出
+samples:
+  - tmp/transcode/job-001/e01/720p/index.m3u8
+  - tmp/transcode/job-002/e02/720p/index.m3u8
+  - tmp/transcode/job-003/e03/720p/index.m3u8
+expected_template: tmp/transcode/job-{job_id}/e{episode}/720p/index.m3u8
+notes: job_id 单调递增，但语义不是 episode。
+--------------------------------------------------------------------------------
+CASE 072 | 错误日志路径关联 episode
+samples:
+  - logs/transcode/show-e01-20260522.log
+  - logs/transcode/show-e02-20260522.log
+  - logs/transcode/show-e03-20260522.log
+expected_template: logs/transcode/show-e{episode}-{date}.log
+notes: date 与 episode 都是变量槽。
+--------------------------------------------------------------------------------
+CASE 073 | 漫画章节图片页码
+samples:
+  - Manga/Chapter 001/001.jpg
+  - Manga/Chapter 001/002.jpg
+  - Manga/Chapter 001/003.jpg
+expected_template: Manga/Chapter {chapter}/{page}.jpg
+notes: page 不是 chapter。
+--------------------------------------------------------------------------------
+CASE 074 | 漫画多章节多页
+samples:
+  - Manga/c001/p001.webp
+  - Manga/c001/p002.webp
+  - Manga/c002/p001.webp
+  - Manga/c002/p002.webp
+expected_template: Manga/c{chapter}/p{page}.webp
+notes: page 在 chapter 内重置。
+--------------------------------------------------------------------------------
+CASE 075 | Scanlator + chapter + title
+samples:
+  - [ScanGroup] Manga Name c001 - Start.zip
+  - [ScanGroup] Manga Name c002 - Fight.zip
+  - [ScanGroup] Manga Name c003 - End.zip
+expected_template: [ScanGroup] Manga Name c{chapter} - {chapter_title}.zip
+notes: zip 包也能归纳。
+--------------------------------------------------------------------------------
+CASE 076 | 卷/话/页
+samples:
+  - 作品/Vol.01/Ch.001/001.png
+  - 作品/Vol.01/Ch.001/002.png
+  - 作品/Vol.02/Ch.010/001.png
+expected_template: 作品/Vol.{volume}/Ch.{chapter}/{page}.png
+notes: volume/chapter/page 三层数字。
+--------------------------------------------------------------------------------
+CASE 077 | 中文漫画 第n话
+samples:
+  - 漫画名 第001话 001.jpg
+  - 漫画名 第001话 002.jpg
+  - 漫画名 第002话 001.jpg
+expected_template: 漫画名 第{chapter}话 {page}.jpg
+notes: 同一个文件名内两个数字槽。
+--------------------------------------------------------------------------------
+CASE 078 | 页码前导零不一致
+samples:
+  - Chapter_1/page_1.jpg
+  - Chapter_1/page_02.jpg
+  - Chapter_1/page_003.jpg
+expected_template: Chapter_{chapter}/page_{page}.jpg
+notes: 页码归一化时保留原宽度或输出 width 属性。
+--------------------------------------------------------------------------------
+CASE 079 | 图片 CDN URL
+samples:
+  - https://cdn.example.com/manga/abc/ch001/0001.webp?token=aaa
+  - https://cdn.example.com/manga/abc/ch001/0002.webp?token=bbb
+  - https://cdn.example.com/manga/abc/ch001/0003.webp?token=ccc
+expected_template: https://cdn.example.com/manga/{series}/ch{chapter}/{page}.webp?token={token}
+notes: URL query token 是变量但非业务字段。
+--------------------------------------------------------------------------------
+CASE 080 | 图片 hash 文件名
+samples:
+  - ch001/8f14e45fceea167a5a36dedd4bea2543.jpg
+  - ch001/c9f0f895fb98ab9159f51fd0297e236d.jpg
+  - ch001/45c48cce2e2d7fbdea1afc51c7c6ad26.jpg
+expected_template: ch{chapter}/{hash}.jpg
+notes: 全文件名 hash，不代表 page，需要外部顺序。
+--------------------------------------------------------------------------------
+CASE 081 | Webtoon 长图切片
+samples:
+  - webtoon/ep001/slice_000.jpg
+  - webtoon/ep001/slice_001.jpg
+  - webtoon/ep001/slice_002.jpg
+expected_template: webtoon/ep{episode}/slice_{slice_index}.jpg
+notes: slice_index 与 episode 区分。
+--------------------------------------------------------------------------------
+CASE 082 | 番外/特别篇漫画
+samples:
+  - Manga Ch.001.zip
+  - Manga Ch.002.zip
+  - Manga Extra 001.zip
+  - Manga Omake.zip
+expected_template: Manga {chapter_or_extra}.zip
+notes: Extra/Omake 是特殊项。
+--------------------------------------------------------------------------------
+CASE 083 | 音乐专辑曲目
+samples:
+  - Album/01 - Opening.flac
+  - Album/02 - Main Theme.flac
+  - Album/03 - Ending.flac
+expected_template: Album/{track} - {track_title}.flac
+notes: track 与 episode 类似，但业务类型不同。
+--------------------------------------------------------------------------------
+CASE 084 | 音乐 disc + track
+samples:
+  - Album/CD1/01 - SongA.flac
+  - Album/CD1/02 - SongB.flac
+  - Album/CD2/01 - SongC.flac
+expected_template: Album/CD{disc}/{track} - {track_title}.flac
+notes: track 在 disc 内重置。
+--------------------------------------------------------------------------------
+CASE 085 | 轻小说卷与章节
+samples:
+  - Novel Vol.01 Chapter 001.txt
+  - Novel Vol.01 Chapter 002.txt
+  - Novel Vol.02 Chapter 001.txt
+expected_template: Novel Vol.{volume} Chapter {chapter}.txt
+notes: chapter 在 volume 内重置。
+--------------------------------------------------------------------------------
+CASE 086 | 电子书格式变化
+samples:
+  - Book.Title.v1.epub
+  - Book.Title.v2.mobi
+  - Book.Title.v3.pdf
+expected_template: Book.Title.{version}.{extension}
+notes: v1/v2 是版本，不是 episode。
+--------------------------------------------------------------------------------
+CASE 087 | 软件版本 semver
+samples:
+  - app-v1.2.0-windows-x64.zip
+  - app-v1.2.1-windows-x64.zip
+  - app-v1.3.0-windows-x64.zip
+expected_template: app-v{version}-{os}-{arch}.zip
+notes: semver 要作为 version 整体。
+--------------------------------------------------------------------------------
+CASE 088 | 软件预发布版本
+samples:
+  - tool-2.0.0-alpha.1-linux-amd64.tar.gz
+  - tool-2.0.0-beta.1-linux-amd64.tar.gz
+  - tool-2.0.0-rc.1-linux-amd64.tar.gz
+expected_template: tool-{version}-{os}-{arch}.tar.gz
+notes: alpha/beta/rc 属于 version。
+--------------------------------------------------------------------------------
+CASE 089 | 平台架构变化
+samples:
+  - app-1.0.0-windows-x64.exe
+  - app-1.0.0-darwin-arm64.dmg
+  - app-1.0.0-linux-x86_64.AppImage
+expected_template: app-{version}-{os}-{arch}.{extension}
+notes: os/arch/extension 多槽变化。
+--------------------------------------------------------------------------------
+CASE 090 | 数据集 shard
+samples:
+  - dataset-train-00000-of-01024.parquet
+  - dataset-train-00001-of-01024.parquet
+  - dataset-train-00002-of-01024.parquet
+expected_template: dataset-{split}-{shard}-of-{shard_total}.parquet
+notes: shard 是分片号，不是 episode。
+--------------------------------------------------------------------------------
+CASE 091 | 模型 checkpoint
+samples:
+  - model-step-000100-loss-1.23.safetensors
+  - model-step-000200-loss-1.01.safetensors
+  - model-step-000300-loss-0.98.safetensors
+expected_template: model-step-{step}-loss-{metric}.safetensors
+notes: step 单调递增但语义是训练步数。
+--------------------------------------------------------------------------------
+CASE 092 | 日志轮转
+samples:
+  - server.log.2026-05-20.gz
+  - server.log.2026-05-21.gz
+  - server.log.2026-05-22.gz
+expected_template: server.log.{date}.gz
+notes: 日期槽。
+--------------------------------------------------------------------------------
+CASE 093 | 备份文件
+samples:
+  - db-backup-20260520-000001.sql.gz
+  - db-backup-20260521-000001.sql.gz
+  - db-backup-20260522-000001.sql.gz
+expected_template: db-backup-{date}-{sequence}.sql.gz
+notes: sequence 是备份序号，不是 episode。
+--------------------------------------------------------------------------------
+CASE 094 | 压缩包分卷
+samples:
+  - Archive.part01.rar
+  - Archive.part02.rar
+  - Archive.part03.rar
+expected_template: Archive.part{part}.rar
+notes: part 不是 episode。
+--------------------------------------------------------------------------------
+CASE 095 | ROM 游戏地区版本
+samples:
+  - Game Title (USA) (Rev 1).zip
+  - Game Title (Europe) (Rev 2).zip
+  - Game Title (Japan) (Rev 1).zip
+expected_template: Game Title ({region}) (Rev {revision}).zip
+notes: Rev 是 revision，不是 episode。
+--------------------------------------------------------------------------------
+CASE 096 | Docker 镜像 tag 风格字符串
+samples:
+  - registry.example.com/app:1.0.0-amd64
+  - registry.example.com/app:1.0.1-amd64
+  - registry.example.com/app:1.1.0-arm64
+expected_template: registry.example.com/app:{version}-{arch}
+notes: 冒号分隔 tag，需要 URL/路径 tokenizer。
+--------------------------------------------------------------------------------
+CASE 097 | 单样本不足
+samples:
+  - [Group] Unknown Show - 01 [1080p].mkv
+expected_template: [Group] Unknown Show - {episode?} [1080p].mkv
+notes: 只有 1 个样本时只能低置信度推断，不能归纳稳定模板。
+--------------------------------------------------------------------------------
+CASE 098 | 同目录混多个作品
+samples:
+  - ShowA - 01.mkv
+  - ShowA - 02.mkv
+  - ShowB - 01.mkv
+  - ShowB - 02.mkv
+expected_template: {series} - {episode}.mkv
+notes: 可归纳通用模板，但应聚类成两个 series。
+--------------------------------------------------------------------------------
+CASE 099 | 完全随机文件名
+samples:
+  - a8f3c9.mkv
+  - B12FF0.mkv
+  - zz991q.mkv
+expected_template: {unknown_id}.mkv
+notes: 不能强行识别 episode；只能输出 unknown/hash-like。
+--------------------------------------------------------------------------------
+CASE 100 | 多数字强歧义
+samples:
+  - A-01-02-03.mkv
+  - A-02-03-04.mkv
+  - A-03-04-05.mkv
+expected_template: A-{slot1}-{slot2}-{slot3}.mkv
+notes: 多个数字槽同步递增，无上下文时不能武断认定 episode。
+--------------------------------------------------------------------------------

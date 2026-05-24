@@ -18,7 +18,8 @@ pub fn run() -> Result<(), tauri::Error> {
             commands::launch_mpv,
             commands::save_project_config,
             commands::reveal_path,
-            commands::save_local_library_entry
+            commands::save_local_library_entry,
+            commands::load_local_library
         ])
         .run(tauri::generate_context!())
 }

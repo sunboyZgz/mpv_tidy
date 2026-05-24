@@ -9,21 +9,27 @@
     "tauri": "tauri",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "build": "tsc && vite build"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.9.0",
     "@tauri-apps/plugin-dialog": "^2.4.1",
     "@vitejs/plugin-react": "^5.1.1",
-    "vite": "^7.2.4",
-    "typescript": "^5.9.3",
+    "lucide-react": "^0.468.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "lucide-react": "^0.468.0"
+    "typescript": "^5.9.3",
+    "vite": "^7.2.4"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.9.2",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
-    "@tauri-apps/cli": "^2.9.2"
+    "jsdom": "^29.1.1",
+    "vitest": "^4.1.7"
   }
 }

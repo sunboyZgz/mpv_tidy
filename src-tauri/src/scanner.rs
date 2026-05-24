@@ -1,6 +1,8 @@
 use crate::domain::{ScanInput, ScanResult, ScannedSubtitle, ScannedVideo};
 use crate::error::{AppError, AppResult};
-use crate::parser::{detect_language, parse_episode};
+use crate::parser::{
+    detect_language, natural_path_cmp, parse_episode_batch, to_parse_candidates, ParseDecision,
+};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
@@ -10,24 +12,28 @@ pub fn scan(input: &ScanInput) -> AppResult<ScanResult> {
 
     for dir in &input.video_dirs {
         ensure_dir(dir)?;
-        for path in collect_files(dir)? {
+        let paths = collect_files(dir)?;
+        let parsed_episodes = parse_episode_batch(&paths);
+        for (path, parsed) in paths.into_iter().zip(parsed_episodes) {
             if is_video_file(&path) {
-                videos.push(scan_video(path));
+                videos.push(scan_video(path, parsed));
             }
         }
     }
 
     for dir in &input.subtitle_dirs {
         ensure_dir(dir)?;
-        for path in collect_files(dir)? {
+        let paths = collect_files(dir)?;
+        let parsed_episodes = parse_episode_batch(&paths);
+        for (path, parsed) in paths.into_iter().zip(parsed_episodes) {
             if is_subtitle_file(&path) {
-                subtitles.push(scan_subtitle(path));
+                subtitles.push(scan_subtitle(path, parsed));
             }
         }
     }
 
-    videos.sort_by(|left, right| left.path.cmp(&right.path));
-    subtitles.sort_by(|left, right| left.path.cmp(&right.path));
+    videos.sort_by(|left, right| natural_path_cmp(&left.path, &right.path));
+    subtitles.sort_by(|left, right| natural_path_cmp(&left.path, &right.path));
 
     Ok(ScanResult { videos, subtitles })
 }
@@ -51,11 +57,15 @@ fn collect_files(dir: &Path) -> AppResult<Vec<PathBuf>> {
     Ok(files)
 }
 
-fn scan_video(path: PathBuf) -> ScannedVideo {
-    let parsed = parse_episode(&path);
-    let episode = parsed.as_ref().map(|value| value.key);
-    let confidence = parsed.as_ref().map_or(0, |value| value.confidence);
+fn scan_video(path: PathBuf, parsed: ParseDecision) -> ScannedVideo {
+    let accepted = parsed
+        .parsed
+        .as_ref()
+        .filter(|value| matches!(value.status, crate::domain::ParseStatus::Accepted));
+    let episode = accepted.map(|value| value.key);
+    let confidence = accepted.map_or(0, |value| value.confidence);
     let episode_key = episode.map(|value| value.to_string());
+    let parse_candidates = to_parse_candidates(&parsed.candidates);
     ScannedVideo {
         file_name: file_name(&path),
         extension: extension(&path),
@@ -64,15 +74,22 @@ fn scan_video(path: PathBuf) -> ScannedVideo {
         episode,
         episode_key,
         confidence,
+        parse_status: parsed.status,
+        parse_notes: parsed.notes,
+        parse_candidates,
     }
 }
 
-fn scan_subtitle(path: PathBuf) -> ScannedSubtitle {
-    let parsed = parse_episode(&path);
-    let episode = parsed.as_ref().map(|value| value.key);
-    let confidence = parsed.as_ref().map_or(0, |value| value.confidence);
+fn scan_subtitle(path: PathBuf, parsed: ParseDecision) -> ScannedSubtitle {
+    let accepted = parsed
+        .parsed
+        .as_ref()
+        .filter(|value| matches!(value.status, crate::domain::ParseStatus::Accepted));
+    let episode = accepted.map(|value| value.key);
+    let confidence = accepted.map_or(0, |value| value.confidence);
     let episode_key = episode.map(|value| value.to_string());
     let language = detect_language(&path);
+    let parse_candidates = to_parse_candidates(&parsed.candidates);
     ScannedSubtitle {
         file_name: file_name(&path),
         extension: extension(&path),
@@ -81,6 +98,9 @@ fn scan_subtitle(path: PathBuf) -> ScannedSubtitle {
         episode,
         episode_key,
         confidence,
+        parse_status: parsed.status,
+        parse_notes: parsed.notes,
+        parse_candidates,
         language,
     }
 }
@@ -111,4 +131,44 @@ fn file_size(path: &Path) -> u64 {
     std::fs::metadata(path)
         .map(|metadata| metadata.len())
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::scan;
+    use crate::domain::{EpisodeKey, ParseStatus, ScanInput};
+    use std::error::Error;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn scan_uses_batch_episode_induction_and_natural_sort() -> Result<(), Box<dyn Error>> {
+        let dir = tempdir()?;
+        let names = [
+            "Jujutsu.Kaisen.10.1080p.WEB-DL.mkv",
+            "Jujutsu.Kaisen.2.1080p.WEB-DL.mkv",
+            "Jujutsu.Kaisen.1.1080p.WEB-DL.mkv",
+        ];
+
+        for name in names {
+            fs::write(dir.path().join(name), [])?;
+        }
+
+        let result = scan(&ScanInput {
+            video_dirs: vec![dir.path().to_path_buf()],
+            subtitle_dirs: Vec::new(),
+        })?;
+
+        assert_eq!(result.videos.len(), 3);
+        assert_eq!(result.videos[0].episode, Some(EpisodeKey::new(1, 1)));
+        assert_eq!(result.videos[0].parse_status, ParseStatus::Accepted);
+        assert!(result.videos[0]
+            .parse_notes
+            .iter()
+            .any(|note| note.contains("模板置信度")));
+        assert_eq!(result.videos[1].episode, Some(EpisodeKey::new(1, 2)));
+        assert_eq!(result.videos[2].episode, Some(EpisodeKey::new(1, 10)));
+
+        Ok(())
+    }
 }

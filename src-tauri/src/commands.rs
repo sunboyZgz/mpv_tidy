@@ -6,6 +6,7 @@ use crate::error::to_user_error;
 use crate::{library, matcher, mpv, organizer, scanner};
 use std::fs;
 use std::path::PathBuf;
+use tauri::Manager;
 
 #[tauri::command]
 pub fn scan_and_match(input: ScanInput) -> Result<ScanAndMatchResult, String> {
@@ -45,7 +46,25 @@ pub fn reveal_path(path: PathBuf) -> Result<(), String> {
 
 #[tauri::command]
 pub fn save_local_library_entry(
+    app: tauri::AppHandle,
     request: SaveLocalLibraryRequest,
 ) -> Result<crate::domain::LocalAnimeLibraryEntry, String> {
-    library::save_local_library_entry(request).map_err(to_user_error)
+    let library_path = local_library_path(&app).map_err(to_user_error)?;
+    library::save_local_library_entry(&library_path, request).map_err(to_user_error)
+}
+
+#[tauri::command]
+pub fn load_local_library(
+    app: tauri::AppHandle,
+) -> Result<crate::domain::LocalAnimeLibraryFile, String> {
+    let library_path = local_library_path(&app).map_err(to_user_error)?;
+    library::load_local_library(&library_path).map_err(to_user_error)
+}
+
+fn local_library_path(app: &tauri::AppHandle) -> Result<PathBuf, crate::error::AppError> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| crate::error::AppError::LibrarySave(error.to_string()))?;
+    Ok(data_dir.join("anime-library.json"))
 }

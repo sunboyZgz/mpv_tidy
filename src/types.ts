@@ -9,6 +9,8 @@ export type MatchStatus =
 export type OrganizeMode = "copy" | "move";
 export type SubtitleRole = "primary" | "secondary" | "candidate";
 export type CollisionAction = "skip" | "replace" | "rename";
+export type ParseStatus = "accepted" | "lowConfidence" | "ambiguous" | "rejected";
+export type ParseCandidateSource = "rule" | "template";
 
 export interface ProjectConfig {
   projectName: string;
@@ -32,6 +34,14 @@ export interface EpisodeKey {
   episode: number;
 }
 
+export interface ParseCandidate {
+  episode: EpisodeKey;
+  episodeKey: string;
+  confidence: number;
+  source: ParseCandidateSource;
+  note: string;
+}
+
 export interface ScannedVideo {
   path: string;
   fileName: string;
@@ -40,6 +50,9 @@ export interface ScannedVideo {
   episode: EpisodeKey | null;
   episodeKey: string | null;
   confidence: number;
+  parseStatus: ParseStatus;
+  parseNotes: string[];
+  parseCandidates: ParseCandidate[];
 }
 
 export interface ScannedSubtitle {
@@ -50,6 +63,9 @@ export interface ScannedSubtitle {
   episode: EpisodeKey | null;
   episodeKey: string | null;
   confidence: number;
+  parseStatus: ParseStatus;
+  parseNotes: string[];
+  parseCandidates: ParseCandidate[];
   language: LanguageCode;
 }
 
@@ -156,4 +172,9 @@ export interface LocalAnimeLibraryEntry {
   episodeCount: number;
   episodes: LibraryEpisodeRecord[];
   organizedAtUnix: number;
+}
+
+export interface LocalAnimeLibraryFile {
+  appVersion: string;
+  entries: LocalAnimeLibraryEntry[];
 }

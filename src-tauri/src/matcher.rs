@@ -181,7 +181,9 @@ fn subtitle_format_rank(extension: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::match_scan;
-    use crate::domain::{LanguageCode, MatchStatus, ScanResult, ScannedSubtitle, ScannedVideo};
+    use crate::domain::{
+        LanguageCode, MatchStatus, ParseStatus, ScanResult, ScannedSubtitle, ScannedVideo,
+    };
     use std::path::PathBuf;
 
     #[test]
@@ -250,6 +252,25 @@ mod tests {
         assert_eq!(result.unprocessed_subtitles.len(), 1);
     }
 
+    #[test]
+    fn keeps_ambiguous_parser_results_out_of_match_table() {
+        let mut video = video("A-01-02-03.mkv");
+        video.episode = None;
+        video.episode_key = None;
+        video.confidence = 0;
+        video.parse_status = ParseStatus::Ambiguous;
+        video.parse_notes = vec!["存在多个接近的 episode 候选，需要手动确认。".to_owned()];
+
+        let result = match_scan(scan_result(vec![video], Vec::new()));
+
+        assert!(result.matches.is_empty());
+        assert_eq!(result.unprocessed_videos.len(), 1);
+        assert_eq!(
+            result.unprocessed_videos[0].parse_status,
+            ParseStatus::Ambiguous
+        );
+    }
+
     fn scan_result(videos: Vec<ScannedVideo>, subtitles: Vec<ScannedSubtitle>) -> ScanResult {
         ScanResult { videos, subtitles }
     }
@@ -263,6 +284,9 @@ mod tests {
             episode: Some(crate::domain::EpisodeKey::new(1, 1)),
             episode_key: Some("S01E01".to_owned()),
             confidence: 100,
+            parse_status: ParseStatus::Accepted,
+            parse_notes: Vec::new(),
+            parse_candidates: Vec::new(),
         }
     }
 
@@ -275,6 +299,9 @@ mod tests {
             episode: Some(crate::domain::EpisodeKey::new(1, 1)),
             episode_key: Some("S01E01".to_owned()),
             confidence: 100,
+            parse_status: ParseStatus::Accepted,
+            parse_notes: Vec::new(),
+            parse_candidates: Vec::new(),
             language,
         }
     }

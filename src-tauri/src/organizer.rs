@@ -339,7 +339,7 @@ mod tests {
     use super::{build_plan, execute_plan};
     use crate::domain::{
         BuildOrganizePlanRequest, CollisionAction, EpisodeKey, EpisodeMatch, LanguageCode,
-        MatchStatus, OrganizeMode, ScannedVideo, SubtitleCandidate, SubtitleRole,
+        MatchStatus, OrganizeMode, ParseStatus, ScannedVideo, SubtitleCandidate, SubtitleRole,
     };
     use std::error::Error;
     use std::fs;
@@ -479,6 +479,9 @@ mod tests {
                 episode: Some(EpisodeKey::new(1, 1)),
                 episode_key: Some("S01E01".to_owned()),
                 confidence: 100,
+                parse_status: ParseStatus::Accepted,
+                parse_notes: Vec::new(),
+                parse_candidates: Vec::new(),
             }),
             primary_subtitle: Some(SubtitleCandidate {
                 path: sub.to_path_buf(),

@@ -79,6 +79,32 @@ pub enum SubtitleRole {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub enum ParseStatus {
+    Accepted,
+    LowConfidence,
+    Ambiguous,
+    Rejected,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ParseCandidateSource {
+    Rule,
+    Template,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParseCandidate {
+    pub episode: EpisodeKey,
+    pub episode_key: String,
+    pub confidence: u8,
+    pub source: ParseCandidateSource,
+    pub note: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum FileOperationKind {
     Video,
     Subtitle,
@@ -133,6 +159,9 @@ pub struct ScannedVideo {
     pub episode: Option<EpisodeKey>,
     pub episode_key: Option<String>,
     pub confidence: u8,
+    pub parse_status: ParseStatus,
+    pub parse_notes: Vec<String>,
+    pub parse_candidates: Vec<ParseCandidate>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -145,6 +174,9 @@ pub struct ScannedSubtitle {
     pub episode: Option<EpisodeKey>,
     pub episode_key: Option<String>,
     pub confidence: u8,
+    pub parse_status: ParseStatus,
+    pub parse_notes: Vec<String>,
+    pub parse_candidates: Vec<ParseCandidate>,
     pub language: LanguageCode,
 }
 
