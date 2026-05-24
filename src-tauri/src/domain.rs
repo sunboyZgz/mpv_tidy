@@ -91,9 +91,10 @@ pub enum ParseStatus {
 pub enum ParseCandidateSource {
     Rule,
     Template,
+    Crf,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ParseSlotLabel {
     Episode,
@@ -119,6 +120,18 @@ pub enum TokenFeatureKind {
     Other,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TokenCompoundKind {
+    SxxExx,
+    VersionedEpisode,
+    Resolution,
+    Codec,
+    Source,
+    Language,
+    Hash,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ParseCandidate {
@@ -136,6 +149,7 @@ pub struct TokenFeatures {
     pub text: String,
     pub lower: String,
     pub kind: TokenFeatureKind,
+    pub compound_kind: Option<TokenCompoundKind>,
     pub number_value: Option<u32>,
     pub number_width: Option<usize>,
     pub previous_token: Option<String>,

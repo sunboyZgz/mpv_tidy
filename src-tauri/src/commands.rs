@@ -4,16 +4,23 @@ use crate::domain::{
     ScanAndMatchResult, ScanInput, TokenFeatures,
 };
 use crate::error::to_user_error;
-use crate::{library, matcher, mpv, organizer, scanner, training};
+use crate::{crf::CrfSlotTagger, library, matcher, mpv, organizer, scanner, training};
 use std::fs;
 use std::path::PathBuf;
 use tauri::Manager;
 
 #[tauri::command]
-pub fn scan_and_match(input: ScanInput) -> Result<ScanAndMatchResult, String> {
-    scanner::scan(&input)
-        .map(matcher::match_scan)
-        .map_err(to_user_error)
+pub fn scan_and_match(
+    app: tauri::AppHandle,
+    input: ScanInput,
+) -> Result<ScanAndMatchResult, String> {
+    let crf_model_path = parse_crf_model_path(&app).map_err(to_user_error)?;
+    let crf_tagger = CrfSlotTagger::load_optional(&crf_model_path).map_err(to_user_error)?;
+    let scan_result = match crf_tagger.as_ref() {
+        Some(tagger) => scanner::scan_with_crf(&input, Some(tagger)),
+        None => scanner::scan(&input),
+    };
+    scan_result.map(matcher::match_scan).map_err(to_user_error)
 }
 
 #[tauri::command]
@@ -90,4 +97,12 @@ fn parse_training_path(app: &tauri::AppHandle) -> Result<PathBuf, crate::error::
         .app_data_dir()
         .map_err(|error| crate::error::AppError::LibrarySave(error.to_string()))?;
     Ok(data_dir.join("parser-training-samples.jsonl"))
+}
+
+fn parse_crf_model_path(app: &tauri::AppHandle) -> Result<PathBuf, crate::error::AppError> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| crate::error::AppError::LibrarySave(error.to_string()))?;
+    Ok(data_dir.join("parser-crf-model.json"))
 }

@@ -10,7 +10,7 @@ export type OrganizeMode = "copy" | "move";
 export type SubtitleRole = "primary" | "secondary" | "candidate";
 export type CollisionAction = "skip" | "replace" | "rename";
 export type ParseStatus = "accepted" | "lowConfidence" | "ambiguous" | "rejected";
-export type ParseCandidateSource = "rule" | "template";
+export type ParseCandidateSource = "rule" | "template" | "crf";
 export type ParseSlotLabel =
   | "episode"
   | "season"
@@ -25,6 +25,14 @@ export type ParseSlotLabel =
   | "special"
   | "unknown";
 export type TokenFeatureKind = "alpha" | "number" | "separator" | "other";
+export type TokenCompoundKind =
+  | "sxxExx"
+  | "versionedEpisode"
+  | "resolution"
+  | "codec"
+  | "source"
+  | "language"
+  | "hash";
 
 export interface ProjectConfig {
   projectName: string;
@@ -61,6 +69,7 @@ export interface TokenFeatures {
   text: string;
   lower: string;
   kind: TokenFeatureKind;
+  compoundKind: TokenCompoundKind | null;
   numberValue: number | null;
   numberWidth: number | null;
   previousToken: string | null;

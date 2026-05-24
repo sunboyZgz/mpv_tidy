@@ -1,6 +1,8 @@
+use crate::crf::CrfSlotTagger;
 use crate::domain::{
     EpisodeKey, LabeledToken, LanguageCode, ParseCandidate, ParseCandidateSource, ParseSlotLabel,
-    ParseStatus, ParseTrainingSample, ParseTrainingSampleSource, TokenFeatureKind, TokenFeatures,
+    ParseStatus, ParseTrainingSample, ParseTrainingSampleSource, TokenCompoundKind,
+    TokenFeatureKind, TokenFeatures,
 };
 use regex::Regex;
 use std::cmp::Ordering;
@@ -120,6 +122,13 @@ pub fn parse_episode_decision(path: &Path) -> ParseDecision {
 }
 
 pub fn parse_episode_batch(paths: &[PathBuf]) -> Vec<ParseDecision> {
+    parse_episode_batch_with_crf(paths, None)
+}
+
+pub fn parse_episode_batch_with_crf(
+    paths: &[PathBuf],
+    crf_tagger: Option<&CrfSlotTagger>,
+) -> Vec<ParseDecision> {
     let mut parsed = paths
         .iter()
         .map(|path| parse_episode_decision(path))
@@ -216,6 +225,10 @@ pub fn parse_episode_batch(paths: &[PathBuf]) -> Vec<ParseDecision> {
         }
     }
 
+    if let Some(tagger) = crf_tagger {
+        apply_crf_tagger(paths, &mut parsed, tagger);
+    }
+
     parsed
 }
 
@@ -230,6 +243,67 @@ pub fn to_parse_candidates(candidates: &[EpisodeCandidate]) -> Vec<ParseCandidat
             note: candidate.note.clone(),
         })
         .collect()
+}
+
+fn apply_crf_tagger(paths: &[PathBuf], decisions: &mut [ParseDecision], tagger: &CrfSlotTagger) {
+    for (path, decision) in paths.iter().zip(decisions.iter_mut()) {
+        if decision.status == ParseStatus::Accepted {
+            continue;
+        }
+
+        let features = token_features_for_path(path);
+        let predictions = tagger.predict(&features);
+        let episode_predictions = predictions
+            .iter()
+            .filter(|prediction| {
+                prediction.label == ParseSlotLabel::Episode
+                    && prediction.score >= tagger.min_episode_score()
+                    && prediction.margin >= tagger.min_episode_margin()
+                    && features
+                        .get(prediction.index)
+                        .and_then(|feature| feature.number_value)
+                        .is_some_and(is_plausible_episode_u32)
+            })
+            .collect::<Vec<_>>();
+
+        if episode_predictions.len() != 1 {
+            if episode_predictions.len() > 1 {
+                decision
+                    .notes
+                    .push("CRF predicted multiple possible episode tokens; manual confirmation is required.".to_owned());
+                let candidates = decision.candidates.clone();
+                let notes = decision.notes.clone();
+                *decision = decide_episode(candidates, notes);
+            }
+            continue;
+        }
+
+        let prediction = episode_predictions[0];
+        let Some(feature) = features.get(prediction.index) else {
+            continue;
+        };
+        let Some(number_value) = feature.number_value else {
+            continue;
+        };
+        let Some(episode) = u16::try_from(number_value).ok() else {
+            continue;
+        };
+
+        let season = parse_season(&searchable_path_text(path)).unwrap_or(1);
+        let mut candidates = decision.candidates.clone();
+        candidates.push(EpisodeCandidate {
+            key: EpisodeKey::new(season, episode),
+            confidence: tagger.episode_confidence(),
+            source: ParseCandidateSource::Crf,
+            note: format!(
+                "CRF slot tagger selected token '{}' as episode (score {:.2}, margin {:.2}).",
+                feature.text, prediction.score, prediction.margin
+            ),
+        });
+        let mut notes = decision.notes.clone();
+        notes.push("CRF was used because deterministic parsing was not accepted.".to_owned());
+        *decision = decide_episode(candidates, notes);
+    }
 }
 
 pub fn token_features_for_path(path: &Path) -> Vec<TokenFeatures> {
@@ -669,14 +743,14 @@ fn previous_meaningful(tokens: &[Token], index: usize) -> Option<&Token> {
         .get(..index)?
         .iter()
         .rev()
-        .find(|token| token.kind != TokenKind::Separator)
+        .find(|token| !is_context_boundary_token(token))
 }
 
 fn next_meaningful(tokens: &[Token], index: usize) -> Option<&Token> {
     tokens
         .iter()
         .skip(index + 1)
-        .find(|token| token.kind != TokenKind::Separator)
+        .find(|token| !is_context_boundary_token(token))
 }
 
 fn next_meaningful_index(tokens: &[Token], index: usize) -> Option<usize> {
@@ -684,8 +758,12 @@ fn next_meaningful_index(tokens: &[Token], index: usize) -> Option<usize> {
         .iter()
         .enumerate()
         .skip(index + 1)
-        .find(|(_, token)| token.kind != TokenKind::Separator)
+        .find(|(_, token)| !is_context_boundary_token(token))
         .map(|(token_index, _)| token_index)
+}
+
+fn is_context_boundary_token(token: &Token) -> bool {
+    matches!(token.kind, TokenKind::Separator | TokenKind::Other)
 }
 
 fn is_resolution(tokens: &[Token], index: usize) -> bool {
@@ -744,6 +822,7 @@ fn is_hash_number(tokens: &[Token], index: usize) -> bool {
         .number
         .as_ref()
         .is_some_and(|number| number.width >= 6 && is_bracketed(tokens, index))
+        || is_hex_hash_run_token(tokens, index)
 }
 
 fn is_source_number(tokens: &[Token], index: usize) -> bool {
@@ -778,6 +857,49 @@ fn is_bracketed(tokens: &[Token], index: usize) -> bool {
     let next = tokens.get(index + 1);
     previous.is_some_and(|token| token.text.contains('[') || token.text.contains('('))
         && next.is_some_and(|token| token.text.contains(']') || token.text.contains(')'))
+}
+
+fn is_hex_hash_run_token(tokens: &[Token], index: usize) -> bool {
+    let Some((start, end)) = alnum_run_bounds(tokens, index) else {
+        return false;
+    };
+    let text = tokens[start..=end]
+        .iter()
+        .map(|token| token.text.as_str())
+        .collect::<String>();
+    if text.len() < 6 || !text.chars().all(|character| character.is_ascii_hexdigit()) {
+        return false;
+    }
+    text.chars().any(|character| character.is_ascii_digit())
+        && text
+            .chars()
+            .any(|character| character.is_ascii_alphabetic())
+}
+
+fn alnum_run_bounds(tokens: &[Token], index: usize) -> Option<(usize, usize)> {
+    let token = tokens.get(index)?;
+    if !matches!(token.kind, TokenKind::Alpha | TokenKind::Number) {
+        return None;
+    }
+
+    let mut start = index;
+    while start > 0
+        && tokens
+            .get(start - 1)
+            .is_some_and(|token| matches!(token.kind, TokenKind::Alpha | TokenKind::Number))
+    {
+        start -= 1;
+    }
+
+    let mut end = index;
+    while tokens
+        .get(end + 1)
+        .is_some_and(|token| matches!(token.kind, TokenKind::Alpha | TokenKind::Number))
+    {
+        end += 1;
+    }
+
+    Some((start, end))
 }
 
 fn is_date_component(tokens: &[Token], index: usize) -> bool {
@@ -841,6 +963,8 @@ fn known_quality_or_source(text: &str) -> bool {
             | "web"
             | "webdl"
             | "web-dl"
+            | "webrip"
+            | "dl"
             | "bdrip"
             | "bluray"
             | "amzn"
@@ -926,6 +1050,8 @@ fn known_language_token(text: &str) -> bool {
             | "hant"
             | "zh-hans"
             | "zh-hant"
+            | "cn"
+            | "tw"
             | "chs"
             | "cht"
             | "sc"
@@ -979,7 +1105,8 @@ fn classify_char(character: char) -> TokenKind {
         TokenKind::Number
     } else if character.is_alphabetic() || matches!(character, '第' | '话' | '話') {
         TokenKind::Alpha
-    } else if character.is_whitespace()
+    } else if character.is_ascii_punctuation()
+        || character.is_whitespace()
         || matches!(
             character,
             '.' | '-' | '_' | '[' | ']' | '(' | ')' | '【' | '】' | '「' | '」'
@@ -1009,6 +1136,107 @@ fn build_token(text: &str, kind: TokenKind) -> Token {
     }
 }
 
+fn compound_kind_for_token(tokens: &[Token], index: usize) -> Option<TokenCompoundKind> {
+    if is_sxx_exx_compound_token(tokens, index) {
+        Some(TokenCompoundKind::SxxExx)
+    } else if is_versioned_episode_compound_token(tokens, index) {
+        Some(TokenCompoundKind::VersionedEpisode)
+    } else if is_hash_number(tokens, index) || is_hex_hash_run_token(tokens, index) {
+        Some(TokenCompoundKind::Hash)
+    } else if is_resolution_compound_token(tokens, index) {
+        Some(TokenCompoundKind::Resolution)
+    } else if is_codec_compound_token(tokens, index) {
+        Some(TokenCompoundKind::Codec)
+    } else if is_source_compound_token(tokens, index) {
+        Some(TokenCompoundKind::Source)
+    } else if is_language_compound_token(tokens, index) {
+        Some(TokenCompoundKind::Language)
+    } else {
+        None
+    }
+}
+
+fn is_sxx_exx_compound_token(tokens: &[Token], index: usize) -> bool {
+    let start = index.saturating_sub(3);
+    for candidate_start in start..=index {
+        let Some(window) = tokens.get(candidate_start..candidate_start + 4) else {
+            continue;
+        };
+        if window[0].lower == "s"
+            && window[1].kind == TokenKind::Number
+            && window[2].lower == "e"
+            && window[3].kind == TokenKind::Number
+            && (candidate_start..candidate_start + 4).contains(&index)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn is_versioned_episode_compound_token(tokens: &[Token], index: usize) -> bool {
+    let start = index.saturating_sub(2);
+    for candidate_start in start..=index {
+        let Some(window) = tokens.get(candidate_start..candidate_start + 3) else {
+            continue;
+        };
+        if window[0].kind == TokenKind::Number
+            && matches!(window[1].lower.as_str(), "v" | "ver" | "version")
+            && window[2].kind == TokenKind::Number
+            && (candidate_start..candidate_start + 3).contains(&index)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn is_resolution_compound_token(tokens: &[Token], index: usize) -> bool {
+    if is_resolution(tokens, index) {
+        return true;
+    }
+    let Some(token) = tokens.get(index) else {
+        return false;
+    };
+    matches!(token.lower.as_str(), "p" | "k")
+        && index
+            .checked_sub(1)
+            .is_some_and(|previous_index| is_resolution(tokens, previous_index))
+}
+
+fn is_codec_compound_token(tokens: &[Token], index: usize) -> bool {
+    if is_codec_number(tokens, index) {
+        return true;
+    }
+    let Some(token) = tokens.get(index) else {
+        return false;
+    };
+    matches!(token.lower.as_str(), "h" | "x" | "avc" | "hevc")
+        && next_meaningful(tokens, index)
+            .and_then(|next| next.number.as_ref())
+            .is_some_and(|number| matches!(number.value, 264..=266))
+}
+
+fn is_source_compound_token(tokens: &[Token], index: usize) -> bool {
+    let Some(token) = tokens.get(index) else {
+        return false;
+    };
+    known_quality_or_source(&token.lower)
+        || (token.lower == "web"
+            && next_meaningful(tokens, index).is_some_and(|next| next.lower == "dl"))
+}
+
+fn is_language_compound_token(tokens: &[Token], index: usize) -> bool {
+    let Some(token) = tokens.get(index) else {
+        return false;
+    };
+    known_language_token(&token.lower)
+        || matches!(token.lower.as_str(), "zh" | "ja")
+            && next_meaningful(tokens, index).is_some_and(|next| {
+                matches!(next.lower.as_str(), "hans" | "hant" | "cn" | "tw" | "jp")
+            })
+}
+
 fn tokens_to_features(tokens: &[Token]) -> Vec<TokenFeatures> {
     tokens
         .iter()
@@ -1018,6 +1246,7 @@ fn tokens_to_features(tokens: &[Token]) -> Vec<TokenFeatures> {
             text: token.text.clone(),
             lower: token.lower.clone(),
             kind: token_feature_kind(token.kind),
+            compound_kind: compound_kind_for_token(tokens, index),
             number_value: token.number.as_ref().map(|number| number.value),
             number_width: token.number.as_ref().map(|number| number.width),
             previous_token: previous_meaningful(tokens, index).map(|value| value.lower.clone()),
@@ -1364,9 +1593,13 @@ fn build_natural_part(text: &str, is_number: bool) -> NaturalPart {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_training_sample, token_features_for_path};
+    use super::{build_training_sample, parse_episode_batch_with_crf, token_features_for_path};
     use super::{detect_language, natural_str_cmp, parse_episode, parse_episode_batch};
-    use crate::domain::{EpisodeKey, LanguageCode, ParseSlotLabel, ParseStatus, TokenFeatureKind};
+    use crate::crf::{CrfSlotModel, CrfSlotTagger};
+    use crate::domain::{
+        EpisodeKey, LanguageCode, ParseCandidateSource, ParseSlotLabel, ParseStatus,
+        TokenCompoundKind, TokenFeatureKind,
+    };
     use std::cmp::Ordering;
     use std::error::Error;
     use std::path::PathBuf;
@@ -1578,10 +1811,45 @@ mod tests {
             feature.kind == TokenFeatureKind::Number
                 && feature.number_value == Some(3)
                 && feature.next_token.as_deref() == Some("v")
+                && feature.compound_kind == Some(TokenCompoundKind::VersionedEpisode)
         }));
         assert!(features
             .iter()
             .any(|feature| feature.is_quality_or_source || feature.number_value == Some(1080)));
+    }
+
+    #[test]
+    fn keeps_unknown_symbols_as_context_boundaries() -> Result<(), Box<dyn Error>> {
+        let features = token_features_for_path(&PathBuf::from("Show$01@1080p.WEB-DL.mkv"));
+        let episode_like = features
+            .iter()
+            .find(|feature| feature.number_value == Some(1))
+            .ok_or("fixture should contain episode-like token")?;
+
+        assert_eq!(episode_like.previous_token.as_deref(), Some("show"));
+        assert_eq!(episode_like.next_token.as_deref(), Some("1080"));
+        assert!(features.iter().any(|feature| {
+            feature.number_value == Some(1080)
+                && feature.compound_kind == Some(TokenCompoundKind::Resolution)
+        }));
+        assert!(features.iter().any(|feature| {
+            feature.lower == "web" && feature.compound_kind == Some(TokenCompoundKind::Source)
+        }));
+        assert!(features.iter().any(|feature| {
+            feature.lower == "dl" && feature.compound_kind == Some(TokenCompoundKind::Source)
+        }));
+        Ok(())
+    }
+
+    #[test]
+    fn marks_hex_hash_runs_as_compound_noise() {
+        let features = token_features_for_path(&PathBuf::from("[2D6390A9].mkv"));
+
+        assert!(features.iter().any(|feature| {
+            feature.number_value == Some(6390)
+                && feature.compound_kind == Some(TokenCompoundKind::Hash)
+        }));
+        assert!(parse_episode(&PathBuf::from("[2D6390A9].mkv")).is_none());
     }
 
     #[test]
@@ -1598,6 +1866,47 @@ mod tests {
         assert!(sample.tokens.iter().any(|token| {
             token.label == ParseSlotLabel::Episode && token.features.number_value == Some(3)
         }));
+    }
+
+    #[test]
+    fn crf_fusion_can_accept_unknown_low_evidence_template() -> Result<(), Box<dyn Error>> {
+        let model = serde_json::from_str::<CrfSlotModel>(
+            r#"{
+                "schemaVersion": 1,
+                "metadata": {
+                    "modelName": "parser-fusion-test",
+                    "modelVersion": "0.1.0",
+                    "trainedAt": null,
+                    "trainingNote": null
+                },
+                "labels": ["unknown", "noise", "episode"],
+                "stateWeights": [
+                    { "label": "unknown", "feature": "bias", "weight": 0.1 },
+                    { "label": "noise", "feature": "kind=separator", "weight": 2.5 },
+                    { "label": "episode", "feature": "kind=number", "weight": 3.0 },
+                    { "label": "episode", "feature": "number=present", "weight": 1.5 },
+                    { "label": "episode", "feature": "number_bucket=small", "weight": 1.0 }
+                ],
+                "transitionWeights": [],
+                "startWeights": [],
+                "minEpisodeScore": 3.0,
+                "minEpisodeMargin": 1.0,
+                "episodeConfidence": 74
+            }"#,
+        )?;
+        let tagger = CrfSlotTagger::from_model(model)?;
+        let parsed =
+            parse_episode_batch_with_crf(&[PathBuf::from("Mysteryxx7xx.mkv")], Some(&tagger));
+
+        assert_eq!(
+            parsed[0].parsed.as_ref().ok_or("crf episode")?.key,
+            EpisodeKey::new(1, 7)
+        );
+        assert!(parsed[0]
+            .candidates
+            .iter()
+            .any(|candidate| candidate.source == ParseCandidateSource::Crf));
+        Ok(())
     }
 
     #[test]

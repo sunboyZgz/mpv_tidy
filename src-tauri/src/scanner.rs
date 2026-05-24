@@ -1,19 +1,28 @@
+use crate::crf::CrfSlotTagger;
 use crate::domain::{ScanInput, ScanResult, ScannedSubtitle, ScannedVideo};
 use crate::error::{AppError, AppResult};
 use crate::parser::{
-    detect_language, natural_path_cmp, parse_episode_batch, to_parse_candidates, ParseDecision,
+    detect_language, natural_path_cmp, parse_episode_batch, parse_episode_batch_with_crf,
+    to_parse_candidates, ParseDecision,
 };
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 pub fn scan(input: &ScanInput) -> AppResult<ScanResult> {
+    scan_with_crf(input, None)
+}
+
+pub fn scan_with_crf(
+    input: &ScanInput,
+    crf_tagger: Option<&CrfSlotTagger>,
+) -> AppResult<ScanResult> {
     let mut videos = Vec::new();
     let mut subtitles = Vec::new();
 
     for dir in &input.video_dirs {
         ensure_dir(dir)?;
         let paths = collect_files(dir)?;
-        let parsed_episodes = parse_episode_batch(&paths);
+        let parsed_episodes = parse_paths(&paths, crf_tagger);
         for (path, parsed) in paths.into_iter().zip(parsed_episodes) {
             if is_video_file(&path) {
                 videos.push(scan_video(path, parsed));
@@ -24,7 +33,7 @@ pub fn scan(input: &ScanInput) -> AppResult<ScanResult> {
     for dir in &input.subtitle_dirs {
         ensure_dir(dir)?;
         let paths = collect_files(dir)?;
-        let parsed_episodes = parse_episode_batch(&paths);
+        let parsed_episodes = parse_paths(&paths, crf_tagger);
         for (path, parsed) in paths.into_iter().zip(parsed_episodes) {
             if is_subtitle_file(&path) {
                 subtitles.push(scan_subtitle(path, parsed));
@@ -36,6 +45,13 @@ pub fn scan(input: &ScanInput) -> AppResult<ScanResult> {
     subtitles.sort_by(|left, right| natural_path_cmp(&left.path, &right.path));
 
     Ok(ScanResult { videos, subtitles })
+}
+
+fn parse_paths(paths: &[PathBuf], crf_tagger: Option<&CrfSlotTagger>) -> Vec<ParseDecision> {
+    match crf_tagger {
+        Some(tagger) => parse_episode_batch_with_crf(paths, Some(tagger)),
+        None => parse_episode_batch(paths),
+    }
 }
 
 fn ensure_dir(path: &Path) -> AppResult<()> {

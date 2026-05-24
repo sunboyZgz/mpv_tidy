@@ -19,6 +19,8 @@ pub enum AppError {
     MpvLaunch(String),
     #[error("本地动漫库保存失败：{0}")]
     LibrarySave(String),
+    #[error("CRF model error: {0}")]
+    CrfModel(String),
 }
 
 pub type AppResult<T> = Result<T, AppError>;
