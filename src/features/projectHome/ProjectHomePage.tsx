@@ -37,6 +37,7 @@ import type {
 
 type ScanState = "idle" | "scanning" | "ready";
 type DrawerMode = "closed" | "episodeDetail";
+type DirectoryAction = "video" | "subtitles" | "output";
 
 interface DrawerDraft {
   episodeKey: string;
@@ -115,6 +116,7 @@ export function ProjectHomePage({
   const [organizedResult, setOrganizedResult] = useState<OrganizeExecutionResult | null>(null);
   const [librarySaved, setLibrarySaved] = useState(false);
   const [message, setMessage] = useState("请选择视频目录、字幕目录和输出目录，然后开始扫描。");
+  const [pendingDirectoryAction, setPendingDirectoryAction] = useState<DirectoryAction | null>(null);
   const [drawerDraft, setDrawerDraft] = useState<DrawerDraft>({
     episodeKey: "",
     videoPath: "",
@@ -174,13 +176,22 @@ export function ProjectHomePage({
       setMessage(browserPreviewMessage);
       return;
     }
-    const selected = await selectDirectory();
-    if (selected) {
-      setVideoDir(selected);
-      setScanResult(null);
-      setScanState("idle");
-      setSelectedEpisodeKey(null);
-      closeDetailDrawer(null);
+    setPendingDirectoryAction("video");
+    setMessage("正在打开视频目录选择器...");
+    try {
+      const selected = await selectDirectory();
+      if (selected) {
+        setVideoDir(selected);
+        setScanResult(null);
+        setScanState("idle");
+        setSelectedEpisodeKey(null);
+        closeDetailDrawer(null);
+        setMessage("已更新视频目录。");
+      }
+    } catch (error) {
+      setMessage(`视频目录选择失败：${String(error)}`);
+    } finally {
+      setPendingDirectoryAction(null);
     }
   }
 
@@ -192,14 +203,23 @@ export function ProjectHomePage({
       setMessage(browserPreviewMessage);
       return;
     }
-    const paths = await selectDirectories();
-    if (paths.length === 0) {
-      return;
+    setPendingDirectoryAction("subtitles");
+    setMessage("正在打开字幕目录选择器...");
+    try {
+      const paths = await selectDirectories();
+      if (paths.length === 0) {
+        return;
+      }
+      setSubtitleDirs((current) => unique([...current, ...paths]));
+      setScanResult(null);
+      setScanState("idle");
+      closeDetailDrawer(null);
+      setMessage(`已添加 ${paths.length} 个字幕目录。`);
+    } catch (error) {
+      setMessage(`字幕目录选择失败：${String(error)}`);
+    } finally {
+      setPendingDirectoryAction(null);
     }
-    setSubtitleDirs((current) => unique([...current, ...paths]));
-    setScanResult(null);
-    setScanState("idle");
-    closeDetailDrawer(null);
   }
 
   async function chooseOutputDir() {
@@ -210,10 +230,19 @@ export function ProjectHomePage({
       setMessage(browserPreviewMessage);
       return;
     }
-    const selected = await selectDirectory();
-    if (selected) {
-      setOutputDir(selected);
-      setOutputHistory((current) => unique([selected, ...current]).slice(0, 3));
+    setPendingDirectoryAction("output");
+    setMessage("正在打开输出目录选择器...");
+    try {
+      const selected = await selectDirectory();
+      if (selected) {
+        setOutputDir(selected);
+        setOutputHistory((current) => unique([selected, ...current]).slice(0, 3));
+        setMessage("已更新输出目录。");
+      }
+    } catch (error) {
+      setMessage(`输出目录选择失败：${String(error)}`);
+    } finally {
+      setPendingDirectoryAction(null);
     }
   }
 
@@ -460,15 +489,21 @@ export function ProjectHomePage({
               primaryText={videoDir ?? "尚未选择视频目录"}
               metaText="当前仅允许一个视频目录"
               buttonText="更换目录"
+              busy={pendingDirectoryAction === "video"}
               onClick={chooseVideoDir}
             />
-            <SubtitleDirectoryCard dirs={subtitleDirs} onAdd={addSubtitleDirs} />
+            <SubtitleDirectoryCard
+              dirs={subtitleDirs}
+              busy={pendingDirectoryAction === "subtitles"}
+              onAdd={addSubtitleDirs}
+            />
             <DirectoryCard
               icon="status_folder.svg"
               title="输出目录"
               primaryText={outputDir ?? "尚未选择输出目录"}
               metaText={outputHistory[0] ? `最近：${outputHistory[0]}` : "最近整理：暂无记录"}
               buttonText="更换目录"
+              busy={pendingDirectoryAction === "output"}
               accent
               onClick={chooseOutputDir}
             />
@@ -621,6 +656,7 @@ function DirectoryCard(props: {
   metaText: string;
   buttonText: string;
   accent?: boolean;
+  busy?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -630,15 +666,16 @@ function DirectoryCard(props: {
         <h3>{props.title}</h3>
         <p title={props.primaryText}>{props.primaryText}</p>
         <small title={props.metaText}>{props.metaText}</small>
-        <button className={props.accent ? "pink-outline" : "violet-outline"} onClick={props.onClick}>
-          {props.buttonText}
+        <button className={props.accent ? "pink-outline" : "violet-outline"} disabled={props.busy} onClick={props.onClick}>
+          {props.busy && <Loader2 className="spin" size={15} />}
+          {props.busy ? "正在打开..." : props.buttonText}
         </button>
       </div>
     </div>
   );
 }
 
-function SubtitleDirectoryCard({ dirs, onAdd }: { dirs: string[]; onAdd: () => void }) {
+function SubtitleDirectoryCard({ busy = false, dirs, onAdd }: { busy?: boolean; dirs: string[]; onAdd: () => void }) {
   return (
     <div className="resource-card subtitle-card">
       <img src={asset("icons/status_subtitle_file.svg")} alt="" />
@@ -655,8 +692,9 @@ function SubtitleDirectoryCard({ dirs, onAdd }: { dirs: string[]; onAdd: () => v
             ))
           )}
         </div>
-        <button className="violet-outline" onClick={onAdd}>
-          添加字幕目录
+        <button className="violet-outline" disabled={busy} onClick={onAdd}>
+          {busy && <Loader2 className="spin" size={15} />}
+          {busy ? "正在打开..." : "添加字幕目录"}
         </button>
       </div>
     </div>
@@ -722,6 +760,7 @@ function DetailDrawer(props: {
 }) {
   const item = props.item;
   const subtitleOptions = item?.candidates ?? [];
+  const parseEvidence = buildParseEvidence(item);
 
   return (
     <aside className={`detail-drawer ${props.isOpen ? "open" : ""}`} aria-hidden={!props.isOpen}>
@@ -744,27 +783,28 @@ function DetailDrawer(props: {
             <InfoRow label="编码格式" value="待解析" />
           </DrawerPanel>
 
-          {item.video && item.video.parseNotes.length > 0 && (
+          {item.video && (parseEvidence.notes.length > 0 || parseEvidence.candidates.length > 0) && (
             <DrawerPanel
+              key={`parse-evidence-${parseEvidence.ownerKey}`}
               title={`解析证据 · ${parseStatusLabel[item.video.parseStatus]}`}
               icon="status_help_question.svg"
               danger={item.video.parseStatus === "ambiguous" || item.video.parseStatus === "lowConfidence"}
             >
               <div className="parse-note-list">
-                {item.video.parseNotes.map((note) => (
-                  <p className="conflict-note" key={note}>
-                    {note}
+                {parseEvidence.notes.map((note) => (
+                  <p className="conflict-note" key={note.id}>
+                    {note.text}
                   </p>
                 ))}
               </div>
-              {item.video.parseCandidates.length > 0 && (
+              {parseEvidence.candidates.length > 0 && (
                 <div className="candidate-list">
-                  {item.video.parseCandidates.map((candidate) => (
-                    <div className="candidate-row" key={`${candidate.episodeKey}-${candidate.source}`}>
+                  {parseEvidence.candidates.map((candidate) => (
+                    <div className="candidate-row" key={candidate.id}>
                       <div className="candidate-main">
                         <span className="mini-chip">{candidate.episodeKey}</span>
                         <span className="mini-chip">{candidate.confidence}</span>
-                        <span className="recommend">{candidate.source === "template" ? "模板" : "规则"}</span>
+                        <span className="recommend">{candidate.sourceLabel}</span>
                       </div>
                       <span>{candidate.note}</span>
                     </div>
@@ -891,6 +931,60 @@ function DrawerPanel(props: {
       {props.children}
     </section>
   );
+}
+
+function buildParseEvidence(item: EpisodeMatch | null) {
+  const video = item?.video ?? null;
+  if (!item || !video) {
+    return { ownerKey: "empty", notes: [], candidates: [] };
+  }
+
+  const ownerKey = video.path || item.episodeKey;
+  const currentEpisodeKey = video.episodeKey ?? item.episodeKey;
+  const shouldShowOnlyCurrentEpisode = video.parseStatus !== "ambiguous";
+  const seenNotes = new Set<string>();
+  const notes = video.parseNotes.flatMap((note, index) => {
+    if (seenNotes.has(note)) {
+      return [];
+    }
+    seenNotes.add(note);
+    return [{ id: `${ownerKey}:note:${index}:${note}`, text: note }];
+  });
+
+  const seenCandidates = new Set<string>();
+  const candidates = video.parseCandidates.flatMap((candidate, index) => {
+    if (shouldShowOnlyCurrentEpisode && currentEpisodeKey && candidate.episodeKey !== currentEpisodeKey) {
+      return [];
+    }
+
+    const signature = `${candidate.episodeKey}\u0000${candidate.confidence}\u0000${candidate.source}\u0000${candidate.note}`;
+    if (seenCandidates.has(signature)) {
+      return [];
+    }
+    seenCandidates.add(signature);
+
+    return [
+      {
+        id: `${ownerKey}:candidate:${index}:${signature}`,
+        episodeKey: candidate.episodeKey,
+        confidence: candidate.confidence,
+        sourceLabel: parseCandidateSourceLabel(candidate.source),
+        note: candidate.note,
+      },
+    ];
+  });
+
+  return { ownerKey, notes, candidates };
+}
+
+function parseCandidateSourceLabel(source: string) {
+  if (source === "template") {
+    return "模板";
+  }
+  if (source === "crf") {
+    return "CRF";
+  }
+  return "规则";
 }
 
 function CandidateRow({ candidate, recommended }: { candidate: SubtitleCandidate; recommended: boolean }) {

@@ -1,0 +1,2195 @@
+{
+  "schemaVersion": 1,
+  "metadata": {
+    "modelName": "anime-parser-crf",
+    "modelVersion": "0.1.0-gemini200",
+    "trainedAt": "2026-05-25T06:36:03+00:00",
+    "trainingNote": "Trained from exactly 200 Gemini parser fixture samples in .cache/data/gemini_case*.jsonl."
+  },
+  "labels": [
+    "unknown",
+    "noise",
+    "episode",
+    "season",
+    "version",
+    "hash",
+    "resolution",
+    "codec",
+    "source",
+    "language",
+    "special"
+  ],
+  "stateWeights": [
+    {
+      "label": "codec",
+      "feature": "bias",
+      "weight": 0.155459
+    },
+    {
+      "label": "hash",
+      "feature": "bias",
+      "weight": 0.069976
+    },
+    {
+      "label": "noise",
+      "feature": "bias",
+      "weight": 0.093588
+    },
+    {
+      "label": "resolution",
+      "feature": "bias",
+      "weight": 0.062715
+    },
+    {
+      "label": "unknown",
+      "feature": "bias",
+      "weight": -1.032797
+    },
+    {
+      "label": "episode",
+      "feature": "bracketed=false",
+      "weight": -0.076734
+    },
+    {
+      "label": "hash",
+      "feature": "bracketed=false",
+      "weight": -0.128287
+    },
+    {
+      "label": "language",
+      "feature": "bracketed=false",
+      "weight": -0.12406
+    },
+    {
+      "label": "noise",
+      "feature": "bracketed=false",
+      "weight": 0.526723
+    },
+    {
+      "label": "source",
+      "feature": "bracketed=false",
+      "weight": -0.1143
+    },
+    {
+      "label": "special",
+      "feature": "bracketed=false",
+      "weight": 0.539042
+    },
+    {
+      "label": "unknown",
+      "feature": "bracketed=false",
+      "weight": -0.304884
+    },
+    {
+      "label": "version",
+      "feature": "bracketed=false",
+      "weight": 0.44712
+    },
+    {
+      "label": "hash",
+      "feature": "bracketed=true",
+      "weight": 0.714256
+    },
+    {
+      "label": "language",
+      "feature": "bracketed=true",
+      "weight": 0.147732
+    },
+    {
+      "label": "resolution",
+      "feature": "bracketed=true",
+      "weight": 0.386429
+    },
+    {
+      "label": "season",
+      "feature": "bracketed=true",
+      "weight": -0.211177
+    },
+    {
+      "label": "source",
+      "feature": "bracketed=true",
+      "weight": 0.333042
+    },
+    {
+      "label": "unknown",
+      "feature": "bracketed=true",
+      "weight": -0.990831
+    },
+    {
+      "label": "codec",
+      "feature": "compound=codec",
+      "weight": 1.339448
+    },
+    {
+      "label": "hash",
+      "feature": "compound=hash",
+      "weight": 3.213376
+    },
+    {
+      "label": "language",
+      "feature": "compound=language",
+      "weight": 3.077284
+    },
+    {
+      "label": "codec",
+      "feature": "compound=none",
+      "weight": 1.496048
+    },
+    {
+      "label": "episode",
+      "feature": "compound=none",
+      "weight": 0.832815
+    },
+    {
+      "label": "noise",
+      "feature": "compound=none",
+      "weight": 3.256376
+    },
+    {
+      "label": "season",
+      "feature": "compound=none",
+      "weight": -0.088741
+    },
+    {
+      "label": "source",
+      "feature": "compound=none",
+      "weight": -0.835568
+    },
+    {
+      "label": "special",
+      "feature": "compound=none",
+      "weight": 0.246611
+    },
+    {
+      "label": "unknown",
+      "feature": "compound=none",
+      "weight": 3.049796
+    },
+    {
+      "label": "resolution",
+      "feature": "compound=resolution",
+      "weight": 3.198398
+    },
+    {
+      "label": "source",
+      "feature": "compound=source",
+      "weight": 3.490117
+    },
+    {
+      "label": "season",
+      "feature": "compound=sxx_exx",
+      "weight": 0.728877
+    },
+    {
+      "label": "episode",
+      "feature": "compound=versioned_episode",
+      "weight": 1.004074
+    },
+    {
+      "label": "version",
+      "feature": "compound=versioned_episode",
+      "weight": 3.031239
+    },
+    {
+      "label": "codec",
+      "feature": "episode_marker=false",
+      "weight": 0.173411
+    },
+    {
+      "label": "episode",
+      "feature": "episode_marker=false",
+      "weight": -1.761717
+    },
+    {
+      "label": "hash",
+      "feature": "episode_marker=false",
+      "weight": 0.095201
+    },
+    {
+      "label": "noise",
+      "feature": "episode_marker=false",
+      "weight": 1.115614
+    },
+    {
+      "label": "resolution",
+      "feature": "episode_marker=false",
+      "weight": 0.10241
+    },
+    {
+      "label": "unknown",
+      "feature": "episode_marker=false",
+      "weight": -0.868453
+    },
+    {
+      "label": "episode",
+      "feature": "episode_marker=true",
+      "weight": 1.952759
+    },
+    {
+      "label": "language",
+      "feature": "kind=alpha",
+      "weight": 0.378159
+    },
+    {
+      "label": "noise",
+      "feature": "kind=alpha",
+      "weight": -3.658052
+    },
+    {
+      "label": "source",
+      "feature": "kind=alpha",
+      "weight": 0.576406
+    },
+    {
+      "label": "special",
+      "feature": "kind=alpha",
+      "weight": 0.412556
+    },
+    {
+      "label": "unknown",
+      "feature": "kind=alpha",
+      "weight": 2.46503
+    },
+    {
+      "label": "version",
+      "feature": "kind=alpha",
+      "weight": 0.082557
+    },
+    {
+      "label": "codec",
+      "feature": "kind=number",
+      "weight": 0.242815
+    },
+    {
+      "label": "episode",
+      "feature": "kind=number",
+      "weight": 1.320475
+    },
+    {
+      "label": "hash",
+      "feature": "kind=number",
+      "weight": 0.103411
+    },
+    {
+      "label": "noise",
+      "feature": "kind=number",
+      "weight": -0.137057
+    },
+    {
+      "label": "resolution",
+      "feature": "kind=number",
+      "weight": 0.191193
+    },
+    {
+      "label": "season",
+      "feature": "kind=number",
+      "weight": 0.281907
+    },
+    {
+      "label": "unknown",
+      "feature": "kind=number",
+      "weight": -0.964466
+    },
+    {
+      "label": "noise",
+      "feature": "kind=separator",
+      "weight": 4.589851
+    },
+    {
+      "label": "codec",
+      "feature": "language_token=false",
+      "weight": 0.20962
+    },
+    {
+      "label": "hash",
+      "feature": "language_token=false",
+      "weight": 0.196636
+    },
+    {
+      "label": "noise",
+      "feature": "language_token=false",
+      "weight": 0.312726
+    },
+    {
+      "label": "resolution",
+      "feature": "language_token=false",
+      "weight": 0.145337
+    },
+    {
+      "label": "source",
+      "feature": "language_token=false",
+      "weight": 0.158948
+    },
+    {
+      "label": "language",
+      "feature": "language_token=true",
+      "weight": 3.077284
+    },
+    {
+      "label": "noise",
+      "feature": "lower= ",
+      "weight": 0.761119
+    },
+    {
+      "label": "unknown",
+      "feature": "lower=0",
+      "weight": 0.177168
+    },
+    {
+      "label": "episode",
+      "feature": "lower=01",
+      "weight": -0.074556
+    },
+    {
+      "label": "noise",
+      "feature": "lower=01",
+      "weight": 0.201988
+    },
+    {
+      "label": "season",
+      "feature": "lower=01",
+      "weight": 0.091663
+    },
+    {
+      "label": "episode",
+      "feature": "lower=02",
+      "weight": -0.389278
+    },
+    {
+      "label": "season",
+      "feature": "lower=02",
+      "weight": 0.286389
+    },
+    {
+      "label": "noise",
+      "feature": "lower=03",
+      "weight": 0.156008
+    },
+    {
+      "label": "episode",
+      "feature": "lower=04",
+      "weight": 0.151889
+    },
+    {
+      "label": "noise",
+      "feature": "lower=05",
+      "weight": 0.168615
+    },
+    {
+      "label": "episode",
+      "feature": "lower=06",
+      "weight": 0.730248
+    },
+    {
+      "label": "episode",
+      "feature": "lower=08",
+      "weight": 0.358924
+    },
+    {
+      "label": "noise",
+      "feature": "lower=1",
+      "weight": 0.133657
+    },
+    {
+      "label": "episode",
+      "feature": "lower=10",
+      "weight": -0.148184
+    },
+    {
+      "label": "noise",
+      "feature": "lower=10",
+      "weight": 0.689245
+    },
+    {
+      "label": "resolution",
+      "feature": "lower=1080",
+      "weight": 0.469934
+    },
+    {
+      "label": "episode",
+      "feature": "lower=11",
+      "weight": 0.230824
+    },
+    {
+      "label": "episode",
+      "feature": "lower=110",
+      "weight": 0.658236
+    },
+    {
+      "label": "episode",
+      "feature": "lower=12",
+      "weight": -0.057028
+    },
+    {
+      "label": "hash",
+      "feature": "lower=12",
+      "weight": 0.131837
+    },
+    {
+      "label": "noise",
+      "feature": "lower=12",
+      "weight": 0.248566
+    },
+    {
+      "label": "episode",
+      "feature": "lower=13",
+      "weight": 0.322521
+    },
+    {
+      "label": "episode",
+      "feature": "lower=15",
+      "weight": 0.174305
+    },
+    {
+      "label": "unknown",
+      "feature": "lower=2",
+      "weight": 0.325875
+    },
+    {
+      "label": "version",
+      "feature": "lower=2",
+      "weight": 0.148721
+    },
+    {
+      "label": "noise",
+      "feature": "lower=2023",
+      "weight": 0.062926
+    },
+    {
+      "label": "noise",
+      "feature": "lower=2024",
+      "weight": 0.157362
+    },
+    {
+      "label": "episode",
+      "feature": "lower=24",
+      "weight": 0.521008
+    },
+    {
+      "label": "codec",
+      "feature": "lower=264",
+      "weight": 0.761285
+    },
+    {
+      "label": "codec",
+      "feature": "lower=265",
+      "weight": 0.643096
+    },
+    {
+      "label": "noise",
+      "feature": "lower=3",
+      "weight": -0.43135
+    },
+    {
+      "label": "season",
+      "feature": "lower=3",
+      "weight": 0.492594
+    },
+    {
+      "label": "unknown",
+      "feature": "lower=3",
+      "weight": 0.316711
+    },
+    {
+      "label": "version",
+      "feature": "lower=3",
+      "weight": 0.144162
+    },
+    {
+      "label": "noise",
+      "feature": "lower=30",
+      "weight": 0.391961
+    },
+    {
+      "label": "noise",
+      "feature": "lower=4",
+      "weight": -0.468116
+    },
+    {
+      "label": "unknown",
+      "feature": "lower=4",
+      "weight": 0.613837
+    },
+    {
+      "label": "noise",
+      "feature": "lower=5",
+      "weight": 0.069704
+    },
+    {
+      "label": "noise",
+      "feature": "lower=[",
+      "weight": 0.270669
+    },
+    {
+      "label": "noise",
+      "feature": "lower=aac",
+      "weight": 3.017286
+    },
+    {
+      "label": "unknown",
+      "feature": "lower=anime",
+      "weight": 0.179552
+    },
+    {
+      "label": "codec",
+      "feature": "lower=avc",
+      "weight": 2.179448
+    },
+    {
+      "label": "source",
+      "feature": "lower=bd",
+      "weight": 2.136827
+    },
+    {
+      "label": "unknown",
+      "feature": "lower=bd",
+      "weight": -0.972371
+    },
+    {
+      "label": "source",
+      "feature": "lower=bdrip",
+      "weight": 0.293262
+    },
+    {
+      "label": "noise",
+      "feature": "lower=bit",
+      "weight": 4.474763
+    },
+    {
+      "label": "noise",
+      "feature": "lower=ddp",
+      "weight": 0.601648
+    },
+    {
+      "label": "source",
+      "feature": "lower=dl",
+      "weight": 0.570641
+    },
+    {
+      "label": "unknown",
+      "feature": "lower=e",
+      "weight": 0.510737
+    },
+    {
+      "label": "language",
+      "feature": "lower=english",
+      "weight": 0.074782
+    },
+    {
+      "label": "noise",
+      "feature": "lower=flac",
+      "weight": 2.304677
+    },
+    {
+      "label": "unknown",
+      "feature": "lower=group",
+      "weight": 0.371014
+    },
+    {
+      "label": "codec",
+      "feature": "lower=h",
+      "weight": 1.517448
+    },
+    {
+      "label": "noise",
+      "feature": "lower=hdr",
+      "weight": 2.061924
+    },
+    {
+      "label": "codec",
+      "feature": "lower=hevc",
+      "weight": 2.38711
+    },
+    {
+      "label": "unknown",
+      "feature": "lower=log",
+      "weight": 0.130915
+    },
+    {
+      "label": "unknown",
+      "feature": "lower=no",
+      "weight": 0.075724
+    },
+    {
+      "label": "special",
+      "feature": "lower=ova",
+      "weight": 1.107304
+    },
+    {
+      "label": "resolution",
+      "feature": "lower=p",
+      "weight": 1.198746
+    },
+    {
+      "label": "special",
+      "feature": "lower=pv",
+      "weight": 0.158918
+    },
+    {
+      "label": "unknown",
+      "feature": "lower=raws",
+      "weight": 0.252013
+    },
+    {
+      "label": "unknown",
+      "feature": "lower=s",
+      "weight": 0.398514
+    },
+    {
+      "label": "unknown",
+      "feature": "lower=show",
+      "weight": 0.110464
+    },
+    {
+      "label": "special",
+      "feature": "lower=sp",
+      "weight": 0.451725
+    },
+    {
+      "label": "special",
+      "feature": "lower=special",
+      "weight": 0.702466
+    },
+    {
+      "label": "unknown",
+      "feature": "lower=title",
+      "weight": 0.555745
+    },
+    {
+      "label": "unknown",
+      "feature": "lower=v",
+      "weight": -0.172428
+    },
+    {
+      "label": "version",
+      "feature": "lower=v",
+      "weight": 1.70976
+    },
+    {
+      "label": "source",
+      "feature": "lower=web",
+      "weight": 1.022276
+    },
+    {
+      "label": "codec",
+      "feature": "lower=x",
+      "weight": 1.241186
+    },
+    {
+      "label": "language",
+      "feature": "lower=zh",
+      "weight": 0.394522
+    },
+    {
+      "label": "unknown",
+      "feature": "lower=第",
+      "weight": 0.55636
+    },
+    {
+      "label": "unknown",
+      "feature": "lower=話",
+      "weight": 0.402046
+    },
+    {
+      "label": "unknown",
+      "feature": "lower=话",
+      "weight": 0.512004
+    },
+    {
+      "label": "noise",
+      "feature": "next=0",
+      "weight": -0.127389
+    },
+    {
+      "label": "unknown",
+      "feature": "next=0",
+      "weight": 0.740664
+    },
+    {
+      "label": "noise",
+      "feature": "next=01",
+      "weight": -0.219187
+    },
+    {
+      "label": "special",
+      "feature": "next=01",
+      "weight": 0.736588
+    },
+    {
+      "label": "unknown",
+      "feature": "next=01",
+      "weight": 0.239122
+    },
+    {
+      "label": "unknown",
+      "feature": "next=04",
+      "weight": 0.063712
+    },
+    {
+      "label": "noise",
+      "feature": "next=05",
+      "weight": -0.134612
+    },
+    {
+      "label": "unknown",
+      "feature": "next=05",
+      "weight": 0.609142
+    },
+    {
+      "label": "noise",
+      "feature": "next=1",
+      "weight": 0.462615
+    },
+    {
+      "label": "codec",
+      "feature": "next=10",
+      "weight": 0.526883
+    },
+    {
+      "label": "season",
+      "feature": "next=10",
+      "weight": 0.591404
+    },
+    {
+      "label": "unknown",
+      "feature": "next=10",
+      "weight": -0.370953
+    },
+    {
+      "label": "episode",
+      "feature": "next=1080",
+      "weight": 1.185187
+    },
+    {
+      "label": "noise",
+      "feature": "next=1080",
+      "weight": -0.787829
+    },
+    {
+      "label": "source",
+      "feature": "next=1080",
+      "weight": 1.417043
+    },
+    {
+      "label": "unknown",
+      "feature": "next=1080",
+      "weight": -1.262241
+    },
+    {
+      "label": "version",
+      "feature": "next=1080",
+      "weight": 0.292164
+    },
+    {
+      "label": "hash",
+      "feature": "next=12",
+      "weight": 0.47419
+    },
+    {
+      "label": "version",
+      "feature": "next=2",
+      "weight": 0.396869
+    },
+    {
+      "label": "codec",
+      "feature": "next=264",
+      "weight": 1.264356
+    },
+    {
+      "label": "noise",
+      "feature": "next=264",
+      "weight": -0.299251
+    },
+    {
+      "label": "codec",
+      "feature": "next=265",
+      "weight": 1.369585
+    },
+    {
+      "label": "noise",
+      "feature": "next=265",
+      "weight": -0.270858
+    },
+    {
+      "label": "noise",
+      "feature": "next=3",
+      "weight": 0.565119
+    },
+    {
+      "label": "unknown",
+      "feature": "next=3",
+      "weight": -0.522363
+    },
+    {
+      "label": "version",
+      "feature": "next=3",
+      "weight": 0.371746
+    },
+    {
+      "label": "noise",
+      "feature": "next=30",
+      "weight": 0.240255
+    },
+    {
+      "label": "noise",
+      "feature": "next=5",
+      "weight": 0.48348
+    },
+    {
+      "label": "episode",
+      "feature": "next=720",
+      "weight": 0.32877
+    },
+    {
+      "label": "noise",
+      "feature": "next=720",
+      "weight": -0.230609
+    },
+    {
+      "label": "codec",
+      "feature": "next=<eos>",
+      "weight": -0.19662
+    },
+    {
+      "label": "episode",
+      "feature": "next=<eos>",
+      "weight": 0.824314
+    },
+    {
+      "label": "hash",
+      "feature": "next=<eos>",
+      "weight": 0.251275
+    },
+    {
+      "label": "language",
+      "feature": "next=<eos>",
+      "weight": 0.294857
+    },
+    {
+      "label": "noise",
+      "feature": "next=<eos>",
+      "weight": 0.198244
+    },
+    {
+      "label": "unknown",
+      "feature": "next=<eos>",
+      "weight": -0.731167
+    },
+    {
+      "label": "codec",
+      "feature": "next=aac",
+      "weight": 0.817909
+    },
+    {
+      "label": "noise",
+      "feature": "next=aac",
+      "weight": 0.071205
+    },
+    {
+      "label": "episode",
+      "feature": "next=bd",
+      "weight": 0.338226
+    },
+    {
+      "label": "noise",
+      "feature": "next=bd",
+      "weight": -0.176286
+    },
+    {
+      "label": "episode",
+      "feature": "next=bdrip",
+      "weight": 0.78333
+    },
+    {
+      "label": "noise",
+      "feature": "next=bdrip",
+      "weight": -0.548716
+    },
+    {
+      "label": "noise",
+      "feature": "next=bit",
+      "weight": 1.867318
+    },
+    {
+      "label": "noise",
+      "feature": "next=build",
+      "weight": 0.497656
+    },
+    {
+      "label": "noise",
+      "feature": "next=chs",
+      "weight": 0.059657
+    },
+    {
+      "label": "codec",
+      "feature": "next=cht",
+      "weight": 0.267763
+    },
+    {
+      "label": "noise",
+      "feature": "next=ddp",
+      "weight": 0.955556
+    },
+    {
+      "label": "source",
+      "feature": "next=dl",
+      "weight": 0.442926
+    },
+    {
+      "label": "season",
+      "feature": "next=e",
+      "weight": 0.955847
+    },
+    {
+      "label": "noise",
+      "feature": "next=english",
+      "weight": 0.133509
+    },
+    {
+      "label": "noise",
+      "feature": "next=flac",
+      "weight": 0.197242
+    },
+    {
+      "label": "noise",
+      "feature": "next=kimi",
+      "weight": -0.435232
+    },
+    {
+      "label": "unknown",
+      "feature": "next=kimi",
+      "weight": 0.635168
+    },
+    {
+      "label": "noise",
+      "feature": "next=log",
+      "weight": 0.652162
+    },
+    {
+      "label": "noise",
+      "feature": "next=movie",
+      "weight": 0.417036
+    },
+    {
+      "label": "unknown",
+      "feature": "next=movie",
+      "weight": -0.263364
+    },
+    {
+      "label": "episode",
+      "feature": "next=nf",
+      "weight": 0.755122
+    },
+    {
+      "label": "noise",
+      "feature": "next=nf",
+      "weight": -0.580541
+    },
+    {
+      "label": "unknown",
+      "feature": "next=no",
+      "weight": 0.193852
+    },
+    {
+      "label": "resolution",
+      "feature": "next=p",
+      "weight": 0.980175
+    },
+    {
+      "label": "noise",
+      "feature": "next=part",
+      "weight": 0.23792
+    },
+    {
+      "label": "unknown",
+      "feature": "next=s",
+      "weight": 0.342168
+    },
+    {
+      "label": "noise",
+      "feature": "next=segment",
+      "weight": 0.955625
+    },
+    {
+      "label": "special",
+      "feature": "next=special",
+      "weight": 0.610648
+    },
+    {
+      "label": "noise",
+      "feature": "next=thrice",
+      "weight": -0.766262
+    },
+    {
+      "label": "unknown",
+      "feature": "next=thrice",
+      "weight": 0.905197
+    },
+    {
+      "label": "unknown",
+      "feature": "next=title",
+      "weight": 0.241076
+    },
+    {
+      "label": "special",
+      "feature": "next=trailer",
+      "weight": 0.158323
+    },
+    {
+      "label": "episode",
+      "feature": "next=v",
+      "weight": 0.429694
+    },
+    {
+      "label": "noise",
+      "feature": "next=v",
+      "weight": 0.213892
+    },
+    {
+      "label": "noise",
+      "feature": "next=violet",
+      "weight": -0.441523
+    },
+    {
+      "label": "unknown",
+      "feature": "next=violet",
+      "weight": 0.615707
+    },
+    {
+      "label": "episode",
+      "feature": "next=web",
+      "weight": 0.677704
+    },
+    {
+      "label": "noise",
+      "feature": "next=web",
+      "weight": -0.358318
+    },
+    {
+      "label": "noise",
+      "feature": "next=zh",
+      "weight": 0.290208
+    },
+    {
+      "label": "season",
+      "feature": "next=季",
+      "weight": 2.559088
+    },
+    {
+      "label": "noise",
+      "feature": "next=第",
+      "weight": -0.644848
+    },
+    {
+      "label": "unknown",
+      "feature": "next=第",
+      "weight": 0.940786
+    },
+    {
+      "label": "episode",
+      "feature": "next=話",
+      "weight": 0.809234
+    },
+    {
+      "label": "episode",
+      "feature": "next=话",
+      "weight": 0.871448
+    },
+    {
+      "label": "language",
+      "feature": "number=absent",
+      "weight": 0.336338
+    },
+    {
+      "label": "noise",
+      "feature": "number=absent",
+      "weight": 0.776255
+    },
+    {
+      "label": "source",
+      "feature": "number=absent",
+      "weight": 0.523744
+    },
+    {
+      "label": "special",
+      "feature": "number=absent",
+      "weight": 0.29456
+    },
+    {
+      "label": "unknown",
+      "feature": "number=absent",
+      "weight": -0.206896
+    },
+    {
+      "label": "codec",
+      "feature": "number=present",
+      "weight": 0.242815
+    },
+    {
+      "label": "episode",
+      "feature": "number=present",
+      "weight": 1.320475
+    },
+    {
+      "label": "hash",
+      "feature": "number=present",
+      "weight": 0.103411
+    },
+    {
+      "label": "noise",
+      "feature": "number=present",
+      "weight": -0.137057
+    },
+    {
+      "label": "resolution",
+      "feature": "number=present",
+      "weight": 0.191193
+    },
+    {
+      "label": "season",
+      "feature": "number=present",
+      "weight": 0.281907
+    },
+    {
+      "label": "unknown",
+      "feature": "number=present",
+      "weight": -0.964466
+    },
+    {
+      "label": "episode",
+      "feature": "number_bucket=episode_range",
+      "weight": 0.690225
+    },
+    {
+      "label": "hash",
+      "feature": "number_bucket=episode_range",
+      "weight": 0.164393
+    },
+    {
+      "label": "noise",
+      "feature": "number_bucket=episode_range",
+      "weight": -0.520515
+    },
+    {
+      "label": "codec",
+      "feature": "number_bucket=large_noise",
+      "weight": 1.924801
+    },
+    {
+      "label": "episode",
+      "feature": "number_bucket=long_series",
+      "weight": 1.448154
+    },
+    {
+      "label": "resolution",
+      "feature": "number_bucket=resolution",
+      "weight": 0.898806
+    },
+    {
+      "label": "episode",
+      "feature": "number_bucket=small",
+      "weight": 0.406421
+    },
+    {
+      "label": "noise",
+      "feature": "number_bucket=small",
+      "weight": 0.370639
+    },
+    {
+      "label": "season",
+      "feature": "number_bucket=small",
+      "weight": 0.74877
+    },
+    {
+      "label": "unknown",
+      "feature": "number_bucket=small",
+      "weight": -0.087978
+    },
+    {
+      "label": "noise",
+      "feature": "number_bucket=year",
+      "weight": 0.933346
+    },
+    {
+      "label": "unknown",
+      "feature": "number_bucket=zero",
+      "weight": 0.177168
+    },
+    {
+      "label": "unknown",
+      "feature": "number_value=0",
+      "weight": 0.177168
+    },
+    {
+      "label": "noise",
+      "feature": "number_value=1",
+      "weight": 0.835678
+    },
+    {
+      "label": "episode",
+      "feature": "number_value=10",
+      "weight": -0.148184
+    },
+    {
+      "label": "noise",
+      "feature": "number_value=10",
+      "weight": 0.689245
+    },
+    {
+      "label": "episode",
+      "feature": "number_value=11",
+      "weight": 0.230824
+    },
+    {
+      "label": "episode",
+      "feature": "number_value=110",
+      "weight": 0.658236
+    },
+    {
+      "label": "episode",
+      "feature": "number_value=12",
+      "weight": -0.057028
+    },
+    {
+      "label": "hash",
+      "feature": "number_value=12",
+      "weight": 0.131837
+    },
+    {
+      "label": "noise",
+      "feature": "number_value=12",
+      "weight": 0.248566
+    },
+    {
+      "label": "episode",
+      "feature": "number_value=13",
+      "weight": 0.322521
+    },
+    {
+      "label": "episode",
+      "feature": "number_value=15",
+      "weight": 0.174305
+    },
+    {
+      "label": "episode",
+      "feature": "number_value=2",
+      "weight": -0.705887
+    },
+    {
+      "label": "season",
+      "feature": "number_value=2",
+      "weight": 0.577998
+    },
+    {
+      "label": "unknown",
+      "feature": "number_value=2",
+      "weight": 0.174175
+    },
+    {
+      "label": "version",
+      "feature": "number_value=2",
+      "weight": 0.135587
+    },
+    {
+      "label": "episode",
+      "feature": "number_value=24",
+      "weight": 0.521008
+    },
+    {
+      "label": "episode",
+      "feature": "number_value=3",
+      "weight": -0.537925
+    },
+    {
+      "label": "season",
+      "feature": "number_value=3",
+      "weight": 0.436349
+    },
+    {
+      "label": "unknown",
+      "feature": "number_value=3",
+      "weight": 0.16464
+    },
+    {
+      "label": "noise",
+      "feature": "number_value=30",
+      "weight": 0.391961
+    },
+    {
+      "label": "noise",
+      "feature": "number_value=4",
+      "weight": -0.31356
+    },
+    {
+      "label": "unknown",
+      "feature": "number_value=4",
+      "weight": 0.353906
+    },
+    {
+      "label": "episode",
+      "feature": "number_value=5",
+      "weight": 0.153568
+    },
+    {
+      "label": "noise",
+      "feature": "number_value=5",
+      "weight": 0.352704
+    },
+    {
+      "label": "episode",
+      "feature": "number_value=6",
+      "weight": 0.730248
+    },
+    {
+      "label": "episode",
+      "feature": "number_value=8",
+      "weight": 0.313053
+    },
+    {
+      "label": "episode",
+      "feature": "number_width=1",
+      "weight": -1.165805
+    },
+    {
+      "label": "season",
+      "feature": "number_width=1",
+      "weight": 0.263346
+    },
+    {
+      "label": "unknown",
+      "feature": "number_width=1",
+      "weight": 1.502195
+    },
+    {
+      "label": "version",
+      "feature": "number_width=1",
+      "weight": 1.027602
+    },
+    {
+      "label": "episode",
+      "feature": "number_width=2",
+      "weight": 2.638203
+    },
+    {
+      "label": "hash",
+      "feature": "number_width=2",
+      "weight": 0.504181
+    },
+    {
+      "label": "noise",
+      "feature": "number_width=2",
+      "weight": 0.341706
+    },
+    {
+      "label": "codec",
+      "feature": "number_width=3",
+      "weight": 1.705474
+    },
+    {
+      "label": "episode",
+      "feature": "number_width=3",
+      "weight": 0.74034
+    },
+    {
+      "label": "noise",
+      "feature": "number_width=4",
+      "weight": 0.596632
+    },
+    {
+      "label": "resolution",
+      "feature": "number_width=4",
+      "weight": 0.573501
+    },
+    {
+      "label": "noise",
+      "feature": "prev=0",
+      "weight": -0.427291
+    },
+    {
+      "label": "unknown",
+      "feature": "prev=0",
+      "weight": 0.886477
+    },
+    {
+      "label": "unknown",
+      "feature": "prev=03",
+      "weight": 0.062314
+    },
+    {
+      "label": "noise",
+      "feature": "prev=05",
+      "weight": 0.203746
+    },
+    {
+      "label": "noise",
+      "feature": "prev=07",
+      "weight": 0.378592
+    },
+    {
+      "label": "unknown",
+      "feature": "prev=08",
+      "weight": 0.052262
+    },
+    {
+      "label": "noise",
+      "feature": "prev=1",
+      "weight": 0.361517
+    },
+    {
+      "label": "noise",
+      "feature": "prev=10",
+      "weight": 2.937595
+    },
+    {
+      "label": "resolution",
+      "feature": "prev=1080",
+      "weight": 0.682852
+    },
+    {
+      "label": "noise",
+      "feature": "prev=12",
+      "weight": 0.526311
+    },
+    {
+      "label": "unknown",
+      "feature": "prev=12",
+      "weight": -0.374605
+    },
+    {
+      "label": "version",
+      "feature": "prev=12",
+      "weight": 0.257512
+    },
+    {
+      "label": "source",
+      "feature": "prev=13",
+      "weight": 0.734738
+    },
+    {
+      "label": "unknown",
+      "feature": "prev=13",
+      "weight": -0.146335
+    },
+    {
+      "label": "episode",
+      "feature": "prev=2",
+      "weight": 0.93339
+    },
+    {
+      "label": "noise",
+      "feature": "prev=2",
+      "weight": 0.623326
+    },
+    {
+      "label": "unknown",
+      "feature": "prev=2",
+      "weight": -0.824311
+    },
+    {
+      "label": "noise",
+      "feature": "prev=2024",
+      "weight": 1.012731
+    },
+    {
+      "label": "noise",
+      "feature": "prev=2025",
+      "weight": 0.24621
+    },
+    {
+      "label": "noise",
+      "feature": "prev=264",
+      "weight": 0.514163
+    },
+    {
+      "label": "noise",
+      "feature": "prev=265",
+      "weight": 0.912015
+    },
+    {
+      "label": "episode",
+      "feature": "prev=3",
+      "weight": 0.586855
+    },
+    {
+      "label": "noise",
+      "feature": "prev=3",
+      "weight": -1.21692
+    },
+    {
+      "label": "unknown",
+      "feature": "prev=3",
+      "weight": 0.462314
+    },
+    {
+      "label": "noise",
+      "feature": "prev=8",
+      "weight": 0.306168
+    },
+    {
+      "label": "episode",
+      "feature": "prev=<bos>",
+      "weight": 0.877838
+    },
+    {
+      "label": "hash",
+      "feature": "prev=<bos>",
+      "weight": 0.075925
+    },
+    {
+      "label": "noise",
+      "feature": "prev=<bos>",
+      "weight": -0.610547
+    },
+    {
+      "label": "special",
+      "feature": "prev=<bos>",
+      "weight": 0.147371
+    },
+    {
+      "label": "unknown",
+      "feature": "prev=<bos>",
+      "weight": 0.495646
+    },
+    {
+      "label": "codec",
+      "feature": "prev=aac",
+      "weight": 0.146398
+    },
+    {
+      "label": "language",
+      "feature": "prev=aac",
+      "weight": 0.292184
+    },
+    {
+      "label": "hash",
+      "feature": "prev=abcdef",
+      "weight": 0.089365
+    },
+    {
+      "label": "episode",
+      "feature": "prev=anime",
+      "weight": 0.942353
+    },
+    {
+      "label": "noise",
+      "feature": "prev=anime",
+      "weight": -0.804239
+    },
+    {
+      "label": "noise",
+      "feature": "prev=avc",
+      "weight": 0.428397
+    },
+    {
+      "label": "codec",
+      "feature": "prev=bdrip",
+      "weight": 0.379465
+    },
+    {
+      "label": "noise",
+      "feature": "prev=bit",
+      "weight": 2.419069
+    },
+    {
+      "label": "noise",
+      "feature": "prev=ddp",
+      "weight": 0.069704
+    },
+    {
+      "label": "episode",
+      "feature": "prev=e",
+      "weight": 0.621819
+    },
+    {
+      "label": "episode",
+      "feature": "prev=ep",
+      "weight": 0.052349
+    },
+    {
+      "label": "noise",
+      "feature": "prev=evangelion",
+      "weight": -0.413458
+    },
+    {
+      "label": "unknown",
+      "feature": "prev=evangelion",
+      "weight": 0.581512
+    },
+    {
+      "label": "episode",
+      "feature": "prev=evergarden",
+      "weight": 0.280401
+    },
+    {
+      "label": "noise",
+      "feature": "prev=evergarden",
+      "weight": -0.095404
+    },
+    {
+      "label": "episode",
+      "feature": "prev=frieren",
+      "weight": 0.209775
+    },
+    {
+      "label": "noise",
+      "feature": "prev=frieren",
+      "weight": -0.09679
+    },
+    {
+      "label": "codec",
+      "feature": "prev=h",
+      "weight": 0.673328
+    },
+    {
+      "label": "noise",
+      "feature": "prev=hdr",
+      "weight": 0.499328
+    },
+    {
+      "label": "noise",
+      "feature": "prev=hevc",
+      "weight": 1.248117
+    },
+    {
+      "label": "episode",
+      "feature": "prev=ii",
+      "weight": 0.759115
+    },
+    {
+      "label": "noise",
+      "feature": "prev=ii",
+      "weight": -0.581873
+    },
+    {
+      "label": "noise",
+      "feature": "prev=kaisen",
+      "weight": 0.508198
+    },
+    {
+      "label": "unknown",
+      "feature": "prev=moozzi",
+      "weight": 1.71888
+    },
+    {
+      "label": "noise",
+      "feature": "prev=movie",
+      "weight": -0.98074
+    },
+    {
+      "label": "source",
+      "feature": "prev=movie",
+      "weight": 0.905153
+    },
+    {
+      "label": "unknown",
+      "feature": "prev=movie",
+      "weight": 0.127951
+    },
+    {
+      "label": "unknown",
+      "feature": "prev=mp",
+      "weight": 1.681808
+    },
+    {
+      "label": "episode",
+      "feature": "prev=mugen",
+      "weight": 0.294972
+    },
+    {
+      "label": "noise",
+      "feature": "prev=mugen",
+      "weight": -0.222772
+    },
+    {
+      "label": "episode",
+      "feature": "prev=name",
+      "weight": 1.4184
+    },
+    {
+      "label": "noise",
+      "feature": "prev=name",
+      "weight": -1.150233
+    },
+    {
+      "label": "noise",
+      "feature": "prev=ova",
+      "weight": 0.857312
+    },
+    {
+      "label": "special",
+      "feature": "prev=ova",
+      "weight": 0.692178
+    },
+    {
+      "label": "codec",
+      "feature": "prev=p",
+      "weight": 1.155817
+    },
+    {
+      "label": "noise",
+      "feature": "prev=p",
+      "weight": -0.339357
+    },
+    {
+      "label": "source",
+      "feature": "prev=p",
+      "weight": 0.245343
+    },
+    {
+      "label": "unknown",
+      "feature": "prev=p",
+      "weight": -0.140831
+    },
+    {
+      "label": "noise",
+      "feature": "prev=page",
+      "weight": 0.717227
+    },
+    {
+      "label": "noise",
+      "feature": "prev=part",
+      "weight": 0.4872
+    },
+    {
+      "label": "unknown",
+      "feature": "prev=part",
+      "weight": 0.693167
+    },
+    {
+      "label": "unknown",
+      "feature": "prev=raws",
+      "weight": 0.122384
+    },
+    {
+      "label": "noise",
+      "feature": "prev=release",
+      "weight": 0.69975
+    },
+    {
+      "label": "unknown",
+      "feature": "prev=release",
+      "weight": -0.476136
+    },
+    {
+      "label": "season",
+      "feature": "prev=s",
+      "weight": 1.158726
+    },
+    {
+      "label": "season",
+      "feature": "prev=season",
+      "weight": 0.709962
+    },
+    {
+      "label": "noise",
+      "feature": "prev=segment",
+      "weight": 1.321566
+    },
+    {
+      "label": "episode",
+      "feature": "prev=series",
+      "weight": 0.057623
+    },
+    {
+      "label": "noise",
+      "feature": "prev=shard",
+      "weight": 0.257081
+    },
+    {
+      "label": "episode",
+      "feature": "prev=shoujo",
+      "weight": 0.352439
+    },
+    {
+      "label": "noise",
+      "feature": "prev=shoujo",
+      "weight": -0.104831
+    },
+    {
+      "label": "episode",
+      "feature": "prev=show",
+      "weight": 0.617219
+    },
+    {
+      "label": "noise",
+      "feature": "prev=show",
+      "weight": -0.464497
+    },
+    {
+      "label": "special",
+      "feature": "prev=special",
+      "weight": 0.6476
+    },
+    {
+      "label": "episode",
+      "feature": "prev=title",
+      "weight": 1.824852
+    },
+    {
+      "label": "noise",
+      "feature": "prev=title",
+      "weight": -1.107106
+    },
+    {
+      "label": "noise",
+      "feature": "prev=v",
+      "weight": 1.048756
+    },
+    {
+      "label": "version",
+      "feature": "prev=v",
+      "weight": 1.675972
+    },
+    {
+      "label": "noise",
+      "feature": "prev=vol",
+      "weight": 0.076352
+    },
+    {
+      "label": "source",
+      "feature": "prev=web",
+      "weight": 0.507489
+    },
+    {
+      "label": "noise",
+      "feature": "prev=wo",
+      "weight": -0.406407
+    },
+    {
+      "label": "unknown",
+      "feature": "prev=wo",
+      "weight": 0.627448
+    },
+    {
+      "label": "codec",
+      "feature": "prev=x",
+      "weight": 0.603252
+    },
+    {
+      "label": "language",
+      "feature": "prev=zh",
+      "weight": 0.11373
+    },
+    {
+      "label": "episode",
+      "feature": "prev=第",
+      "weight": 0.121706
+    },
+    {
+      "label": "season",
+      "feature": "prev=第",
+      "weight": 0.246126
+    },
+    {
+      "label": "codec",
+      "feature": "quality_or_source=false",
+      "weight": -1.3573
+    },
+    {
+      "label": "hash",
+      "feature": "quality_or_source=false",
+      "weight": 0.359843
+    },
+    {
+      "label": "language",
+      "feature": "quality_or_source=false",
+      "weight": 0.062357
+    },
+    {
+      "label": "noise",
+      "feature": "quality_or_source=false",
+      "weight": -0.685112
+    },
+    {
+      "label": "resolution",
+      "feature": "quality_or_source=false",
+      "weight": -0.264281
+    },
+    {
+      "label": "source",
+      "feature": "quality_or_source=false",
+      "weight": -0.488961
+    },
+    {
+      "label": "unknown",
+      "feature": "quality_or_source=false",
+      "weight": 2.808881
+    },
+    {
+      "label": "version",
+      "feature": "quality_or_source=false",
+      "weight": 0.12802
+    },
+    {
+      "label": "codec",
+      "feature": "quality_or_source=true",
+      "weight": 2.14128
+    },
+    {
+      "label": "noise",
+      "feature": "quality_or_source=true",
+      "weight": 1.470965
+    },
+    {
+      "label": "resolution",
+      "feature": "quality_or_source=true",
+      "weight": 0.873899
+    },
+    {
+      "label": "source",
+      "feature": "quality_or_source=true",
+      "weight": 1.008468
+    },
+    {
+      "label": "codec",
+      "feature": "season_marker=false",
+      "weight": 0.195052
+    },
+    {
+      "label": "episode",
+      "feature": "season_marker=false",
+      "weight": 0.242651
+    },
+    {
+      "label": "hash",
+      "feature": "season_marker=false",
+      "weight": 0.096257
+    },
+    {
+      "label": "noise",
+      "feature": "season_marker=false",
+      "weight": 1.056463
+    },
+    {
+      "label": "resolution",
+      "feature": "season_marker=false",
+      "weight": 0.124031
+    },
+    {
+      "label": "unknown",
+      "feature": "season_marker=false",
+      "weight": -0.359189
+    },
+    {
+      "label": "episode",
+      "feature": "season_marker=true",
+      "weight": -0.193494
+    },
+    {
+      "label": "season",
+      "feature": "season_marker=true",
+      "weight": 3.27231
+    },
+    {
+      "label": "codec",
+      "feature": "special_token=false",
+      "weight": 0.177687
+    },
+    {
+      "label": "hash",
+      "feature": "special_token=false",
+      "weight": 0.089228
+    },
+    {
+      "label": "noise",
+      "feature": "special_token=false",
+      "weight": 0.392197
+    },
+    {
+      "label": "resolution",
+      "feature": "special_token=false",
+      "weight": 0.08528
+    },
+    {
+      "label": "unknown",
+      "feature": "special_token=false",
+      "weight": 1.785834
+    },
+    {
+      "label": "special",
+      "feature": "special_token=true",
+      "weight": 5.08205
+    }
+  ],
+  "transitionWeights": [
+    {
+      "from": "codec",
+      "to": "codec",
+      "weight": 1.807284
+    },
+    {
+      "from": "codec",
+      "to": "noise",
+      "weight": -0.135239
+    },
+    {
+      "from": "episode",
+      "to": "noise",
+      "weight": -0.134873
+    },
+    {
+      "from": "episode",
+      "to": "unknown",
+      "weight": 0.520564
+    },
+    {
+      "from": "episode",
+      "to": "version",
+      "weight": 1.360421
+    },
+    {
+      "from": "hash",
+      "to": "episode",
+      "weight": -0.357027
+    },
+    {
+      "from": "hash",
+      "to": "hash",
+      "weight": 2.901628
+    },
+    {
+      "from": "hash",
+      "to": "noise",
+      "weight": -0.431539
+    },
+    {
+      "from": "language",
+      "to": "noise",
+      "weight": 0.113004
+    },
+    {
+      "from": "noise",
+      "to": "episode",
+      "weight": 0.770997
+    },
+    {
+      "from": "noise",
+      "to": "hash",
+      "weight": -0.377666
+    },
+    {
+      "from": "noise",
+      "to": "language",
+      "weight": 0.158579
+    },
+    {
+      "from": "noise",
+      "to": "noise",
+      "weight": -0.050479
+    },
+    {
+      "from": "noise",
+      "to": "resolution",
+      "weight": -0.123182
+    },
+    {
+      "from": "noise",
+      "to": "season",
+      "weight": -0.087227
+    },
+    {
+      "from": "noise",
+      "to": "source",
+      "weight": 0.856435
+    },
+    {
+      "from": "noise",
+      "to": "special",
+      "weight": -0.081908
+    },
+    {
+      "from": "noise",
+      "to": "unknown",
+      "weight": -0.127837
+    },
+    {
+      "from": "noise",
+      "to": "version",
+      "weight": -0.340765
+    },
+    {
+      "from": "resolution",
+      "to": "codec",
+      "weight": -0.211003
+    },
+    {
+      "from": "resolution",
+      "to": "resolution",
+      "weight": 2.69079
+    },
+    {
+      "from": "resolution",
+      "to": "source",
+      "weight": -0.091044
+    },
+    {
+      "from": "season",
+      "to": "unknown",
+      "weight": 1.057158
+    },
+    {
+      "from": "source",
+      "to": "noise",
+      "weight": 0.271133
+    },
+    {
+      "from": "special",
+      "to": "noise",
+      "weight": 0.26351
+    },
+    {
+      "from": "unknown",
+      "to": "codec",
+      "weight": -0.321508
+    },
+    {
+      "from": "unknown",
+      "to": "episode",
+      "weight": 0.945049
+    },
+    {
+      "from": "unknown",
+      "to": "hash",
+      "weight": -0.586223
+    },
+    {
+      "from": "unknown",
+      "to": "noise",
+      "weight": 0.299779
+    },
+    {
+      "from": "unknown",
+      "to": "resolution",
+      "weight": -0.114562
+    },
+    {
+      "from": "unknown",
+      "to": "season",
+      "weight": 1.15357
+    },
+    {
+      "from": "unknown",
+      "to": "unknown",
+      "weight": -0.315783
+    },
+    {
+      "from": "unknown",
+      "to": "version",
+      "weight": -0.643592
+    },
+    {
+      "from": "version",
+      "to": "noise",
+      "weight": -0.236067
+    },
+    {
+      "from": "version",
+      "to": "version",
+      "weight": 1.501266
+    }
+  ],
+  "startWeights": [],
+  "minEpisodeScore": 2.5,
+  "minEpisodeMargin": 0.8,
+  "episodeConfidence": 74
+}

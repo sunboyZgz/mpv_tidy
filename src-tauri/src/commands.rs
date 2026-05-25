@@ -1,7 +1,7 @@
 use crate::domain::{
     BuildOrganizePlanRequest, MpvLaunchRequest, OrganizeExecutionResult, OrganizePlan,
     ParseTrainingSample, ProjectConfig, SaveLocalLibraryRequest, SaveParseTrainingSampleRequest,
-    ScanAndMatchResult, ScanInput, TokenFeatures,
+    ScanAndMatchResult, ScanInput, SettingsStoragePaths, TokenFeatures,
 };
 use crate::error::to_user_error;
 use crate::{crf::CrfSlotTagger, library, matcher, mpv, organizer, scanner, training};
@@ -83,26 +83,33 @@ pub fn save_parse_training_sample(
     training::save_parse_training_sample(&training_path, request).map_err(to_user_error)
 }
 
+#[tauri::command]
+pub fn settings_storage_paths(app: tauri::AppHandle) -> Result<SettingsStoragePaths, String> {
+    let data_dir = app_data_dir(&app).map_err(to_user_error)?;
+    Ok(SettingsStoragePaths {
+        training_data_dir: data_dir.clone(),
+        training_sample_file: data_dir.join("parser-training-samples.jsonl"),
+        crf_model_file: data_dir.join("parser-crf-model.json"),
+    })
+}
+
 fn local_library_path(app: &tauri::AppHandle) -> Result<PathBuf, crate::error::AppError> {
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| crate::error::AppError::LibrarySave(error.to_string()))?;
+    let data_dir = app_data_dir(app)?;
     Ok(data_dir.join("anime-library.json"))
 }
 
 fn parse_training_path(app: &tauri::AppHandle) -> Result<PathBuf, crate::error::AppError> {
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| crate::error::AppError::LibrarySave(error.to_string()))?;
+    let data_dir = app_data_dir(app)?;
     Ok(data_dir.join("parser-training-samples.jsonl"))
 }
 
 fn parse_crf_model_path(app: &tauri::AppHandle) -> Result<PathBuf, crate::error::AppError> {
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| crate::error::AppError::LibrarySave(error.to_string()))?;
+    let data_dir = app_data_dir(app)?;
     Ok(data_dir.join("parser-crf-model.json"))
+}
+
+fn app_data_dir(app: &tauri::AppHandle) -> Result<PathBuf, crate::error::AppError> {
+    app.path()
+        .app_data_dir()
+        .map_err(|error| crate::error::AppError::LibrarySave(error.to_string()))
 }

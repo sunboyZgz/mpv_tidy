@@ -8,6 +8,7 @@ import type {
   OrganizePlan,
   SaveLocalLibraryRequest,
   SaveParseTrainingSampleRequest,
+  SettingsStoragePaths,
   ScanAndMatchResult,
   ScanInput,
   TokenFeatures,
@@ -65,6 +66,10 @@ export function extractParseTokenFeatures(path: string) {
 
 export function saveParseTrainingSample(request: SaveParseTrainingSampleRequest) {
   return invoke("save_parse_training_sample", { request });
+}
+
+export function loadSettingsStoragePaths() {
+  return invoke<SettingsStoragePaths>("settings_storage_paths");
 }
 
 export function launchMpv(request: MpvLaunchRequest) {

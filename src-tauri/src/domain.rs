@@ -198,6 +198,14 @@ pub struct SaveParseTrainingSampleRequest {
     pub note: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsStoragePaths {
+    pub training_data_dir: PathBuf,
+    pub training_sample_file: PathBuf,
+    pub crf_model_file: PathBuf,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum FileOperationKind {

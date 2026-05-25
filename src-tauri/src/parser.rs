@@ -97,9 +97,10 @@ pub fn parse_episode(path: &Path) -> Option<ParsedEpisode> {
 }
 
 pub fn parse_episode_decision(path: &Path) -> ParseDecision {
-    let text = searchable_path_text(path);
+    let text = searchable_file_text(path);
+    let season = parse_season(&searchable_path_text(path)).unwrap_or(1);
     let mut notes = Vec::new();
-    let candidates = regex_episode_candidates(&text);
+    let candidates = regex_episode_candidates_for_season(&text, season);
     if candidates.is_empty() {
         notes.push("未命中单文件强规则。".to_owned());
     }
@@ -395,8 +396,7 @@ pub fn detect_language(path: &Path) -> LanguageCode {
     LanguageCode::Und
 }
 
-fn regex_episode_candidates(text: &str) -> Vec<EpisodeCandidate> {
-    let season = parse_season(text).unwrap_or(1);
+fn regex_episode_candidates_for_season(text: &str, season: u16) -> Vec<EpisodeCandidate> {
     let mut candidates = Vec::new();
 
     collect_sxx_exx(text, &mut candidates);
@@ -1491,6 +1491,10 @@ fn searchable_path_text(path: &Path) -> String {
     )
 }
 
+fn searchable_file_text(path: &Path) -> String {
+    normalize_text(&file_name(path))
+}
+
 fn path_sort_text(path: &Path) -> String {
     normalize_text(
         &path
@@ -1645,6 +1649,22 @@ mod tests {
             assert_eq!(parsed.key, expected);
         }
 
+        Ok(())
+    }
+
+    #[test]
+    fn keeps_parent_directory_episode_tokens_out_of_single_file_evidence(
+    ) -> Result<(), Box<dyn Error>> {
+        let path =
+            PathBuf::from("Jujutsu Kaisen S01E01 S01E02 S01E03 archive/Jujutsu Kaisen S01E16.mkv");
+
+        let parsed = parse_episode(&path).ok_or("episode should parse from file name")?;
+
+        assert_eq!(parsed.key, EpisodeKey::new(1, 16));
+        assert!(parsed
+            .candidates
+            .iter()
+            .all(|candidate| candidate.key == EpisodeKey::new(1, 16)));
         Ok(())
     }
 

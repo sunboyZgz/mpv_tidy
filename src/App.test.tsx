@@ -139,6 +139,44 @@ describe("Project home parser evidence", () => {
     expect(await screen.findByText("解析证据 · 低置信")).toBeInTheDocument();
     expect(screen.getByText("存在多个接近的 episode 候选，需要手动确认。")).toBeInTheDocument();
   });
+
+  it("replaces parser evidence when switching scanned result rows", async () => {
+    const user = userEvent.setup();
+    openMock.mockResolvedValueOnce("D:\\Anime\\videos").mockResolvedValueOnce(["D:\\Anime\\subs"]);
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "scan_and_match") {
+        return Promise.resolve(makeSwitchingEvidenceScanResult());
+      }
+      return Promise.resolve(null);
+    });
+
+    render(<ProjectHomePage showToast={vi.fn()} onLibraryEntrySaved={vi.fn()} />);
+
+    await user.click(screen.getAllByRole("button", { name: "更换目录" })[0]);
+    await user.click(screen.getByRole("button", { name: "添加字幕目录" }));
+    await user.click(screen.getByRole("button", { name: "开始扫描" }));
+
+    expect(await screen.findByText("current-one")).toBeInTheDocument();
+    expect(screen.getAllByText("current-one")).toHaveLength(1);
+    expect(screen.queryByText("current-two")).not.toBeInTheDocument();
+    expect(screen.queryByText("stale-two")).not.toBeInTheDocument();
+
+    await user.click(screen.getByText("S01E02"));
+    expect(await screen.findByText("current-two")).toBeInTheDocument();
+    expect(screen.getAllByText("current-two")).toHaveLength(1);
+    expect(screen.queryByText("current-one")).not.toBeInTheDocument();
+    expect(screen.queryByText("stale-one")).not.toBeInTheDocument();
+
+    await user.click(screen.getByText("S01E01"));
+    expect(await screen.findByText("current-one")).toBeInTheDocument();
+    expect(screen.getAllByText("current-one")).toHaveLength(1);
+    expect(screen.queryByText("current-two")).not.toBeInTheDocument();
+
+    await user.click(screen.getByText("S01E02"));
+    expect(await screen.findByText("current-two")).toBeInTheDocument();
+    expect(screen.getAllByText("current-two")).toHaveLength(1);
+    expect(screen.queryByText("current-one")).not.toBeInTheDocument();
+  });
 });
 
 function makeLibraryEntry(projectName: string, episodeCount: number): LocalAnimeLibraryEntry {
@@ -181,6 +219,81 @@ function makeParserEvidenceScanResult(): ScanAndMatchResult {
     matches: [match],
     unprocessedVideos: [],
     unprocessedSubtitles: [],
+  };
+}
+
+function makeSwitchingEvidenceScanResult(): ScanAndMatchResult {
+  const videoOne = makeEvidenceVideo(1, [
+    {
+      episode: { season: 1, episode: 1 },
+      episodeKey: "S01E01",
+      confidence: 90,
+      source: "rule",
+      note: "current-one",
+    },
+    {
+      episode: { season: 1, episode: 1 },
+      episodeKey: "S01E01",
+      confidence: 90,
+      source: "rule",
+      note: "current-one",
+    },
+    {
+      episode: { season: 1, episode: 2 },
+      episodeKey: "S01E02",
+      confidence: 90,
+      source: "rule",
+      note: "stale-two",
+    },
+  ]);
+  const videoTwo = makeEvidenceVideo(2, [
+    {
+      episode: { season: 1, episode: 1 },
+      episodeKey: "S01E01",
+      confidence: 90,
+      source: "rule",
+      note: "stale-one",
+    },
+    {
+      episode: { season: 1, episode: 2 },
+      episodeKey: "S01E02",
+      confidence: 90,
+      source: "rule",
+      note: "current-two",
+    },
+  ]);
+  const matches = [videoOne, videoTwo].map((video): EpisodeMatch => ({
+    episode: video.episode ?? { season: 1, episode: 1 },
+    episodeKey: video.episodeKey ?? "S01E01",
+    video,
+    primarySubtitle: null,
+    secondarySubtitle: null,
+    candidates: [],
+    status: "matched",
+    notes: [],
+  }));
+
+  return {
+    scan: { videos: [videoOne, videoTwo], subtitles: [] },
+    matches,
+    unprocessedVideos: [],
+    unprocessedSubtitles: [],
+  };
+}
+
+function makeEvidenceVideo(episode: number, parseCandidates: ScannedVideo["parseCandidates"]): ScannedVideo {
+  const episodeKey = `S01E${String(episode).padStart(2, "0")}`;
+  return {
+    path: `D:\\Anime\\videos\\${episodeKey}.mkv`,
+    fileName: `${episodeKey}.mkv`,
+    extension: "mkv",
+    fileSizeBytes: 1024,
+    episode: { season: 1, episode },
+    episodeKey,
+    confidence: 90,
+    parseStatus: "accepted",
+    parseNotes: [`已接受 ${episodeKey}，置信度 90。`],
+    parseCandidates,
   };
 }
 

@@ -8,8 +8,8 @@ import {
   RotateCcw,
   Save,
 } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
-import { selectDirectory, selectFile } from "../../services/tauriCommands";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { loadSettingsStoragePaths, selectDirectory, selectFile } from "../../services/tauriCommands";
 import { asset, browserPreviewMessage, chipClass, isTauriRuntime } from "../../shared/utils";
 import "./settings.css";
 
@@ -20,12 +20,14 @@ type CoverStrategy =
   | "screenshot-only"
   | "disabled";
 type PathSettingType = "mpvExecutablePath" | "defaultOutputDir" | "animeLibraryRootDir" | "tempDir";
+const previewTrainingDataDir = "C:\\Users\\User\\AppData\\Roaming\\com.mpvtidy.animesubtitlemanager";
 
 interface SettingsState {
   mpvExecutablePath: string;
   defaultOutputDir: string;
   animeLibraryRootDir: string;
   tempDir: string;
+  trainingDataDir: string;
   defaultPrimarySubtitleLanguage: SubtitleLanguage;
   defaultSecondarySubtitleLanguage: SubtitleLanguage;
   rememberPlaybackProgress: boolean;
@@ -39,6 +41,7 @@ const defaultSettings: SettingsState = {
   defaultOutputDir: "D:\\整理输出",
   animeLibraryRootDir: "D:\\AnimeLibrary",
   tempDir: "C:\\Users\\User\\AppData\\Local\\mpv_tidy\\temp",
+  trainingDataDir: previewTrainingDataDir,
   defaultPrimarySubtitleLanguage: "zh-Hans",
   defaultSecondarySubtitleLanguage: "en",
   rememberPlaybackProgress: true,
@@ -73,8 +76,8 @@ async function saveSettings(_settings: SettingsState) {
   return;
 }
 
-function resetSettingsToDefault(): SettingsState {
-  return defaultSettings;
+function resetSettingsToDefault(trainingDataDir = defaultSettings.trainingDataDir): SettingsState {
+  return { ...defaultSettings, trainingDataDir };
 }
 
 export function SettingsPage({ showToast }: { showToast: (message: string) => void }) {
@@ -93,6 +96,29 @@ export function SettingsPage({ showToast }: { showToast: (message: string) => vo
   function updateSetting<K extends keyof SettingsState>(key: K, value: SettingsState[K]) {
     setSettings((current) => ({ ...current, [key]: value }));
   }
+
+  useEffect(() => {
+    if (!isTauriRuntime()) {
+      return;
+    }
+
+    let mounted = true;
+    loadSettingsStoragePaths()
+      .then((paths) => {
+        if (!mounted) {
+          return;
+        }
+        setSavedSettings((current) => ({ ...current, trainingDataDir: paths.trainingDataDir }));
+        setSettings((current) => ({ ...current, trainingDataDir: paths.trainingDataDir }));
+      })
+      .catch((error) => {
+        showToast(`训练数据目录读取失败：${String(error)}`);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   async function handleBrowsePath(type: PathSettingType) {
     if (!isTauriRuntime()) {
@@ -122,7 +148,7 @@ export function SettingsPage({ showToast }: { showToast: (message: string) => vo
     if (!confirmed) {
       return;
     }
-    setSettings(resetSettingsToDefault());
+    setSettings(resetSettingsToDefault(settings.trainingDataDir));
     showToast("已恢复默认设置");
   }
 
@@ -183,7 +209,7 @@ function BasicPathSettingsCard({
   onUpdate: <K extends keyof SettingsState>(key: K, value: SettingsState[K]) => void;
 }) {
   return (
-    <SettingsCard icon={<FolderOpen size={19} />} title="基础路径设置">
+    <SettingsCard className="basic-path-card" icon={<FolderOpen size={19} />} title="基础路径设置">
       <PathSettingRow
         id="settings-mpv-path"
         label="MPV 可执行文件路径"
@@ -211,6 +237,13 @@ function BasicPathSettingsCard({
         value={settings.tempDir}
         onBrowse={() => onBrowse("tempDir")}
         onChange={(value) => onUpdate("tempDir", value)}
+      />
+      <PathSettingRow
+        id="settings-training-data-dir"
+        label="训练数据目录"
+        value={settings.trainingDataDir}
+        disabled
+        readonlyText="自动管理"
       />
       <HelperText>这些路径会用于字幕整理、扫描缓存与播放器调用。</HelperText>
     </SettingsCard>
@@ -385,9 +418,19 @@ function SettingsSummaryPanel({ settings }: { settings: SettingsState }) {
   );
 }
 
-function SettingsCard({ children, icon, title }: { children: ReactNode; icon: ReactNode; title: string }) {
+function SettingsCard({
+  children,
+  className,
+  icon,
+  title,
+}: {
+  children: ReactNode;
+  className?: string;
+  icon: ReactNode;
+  title: string;
+}) {
   return (
-    <section className="settings-card">
+    <section className={`settings-card ${className ?? ""}`}>
       <h2>
         <span className="settings-card-icon">{icon}</span>
         {title}
@@ -398,26 +441,43 @@ function SettingsCard({ children, icon, title }: { children: ReactNode; icon: Re
 }
 
 function PathSettingRow({
+  disabled = false,
   id,
   label,
   onBrowse,
   onChange,
+  readonlyText = "只读",
   value,
 }: {
+  disabled?: boolean;
   id: string;
   label: string;
   value: string;
-  onBrowse: () => void;
-  onChange: (value: string) => void;
+  onBrowse?: () => void;
+  onChange?: (value: string) => void;
+  readonlyText?: string;
 }) {
   return (
-    <div className="path-setting-row">
+    <div className={`path-setting-row ${disabled ? "disabled" : ""}`}>
       <label htmlFor={id}>{label}</label>
       <div className="path-setting-control">
-        <input id={id} value={value} title={value} onChange={(event) => onChange(event.target.value)} />
-        <button className="settings-button browse" onClick={onBrowse}>
-          浏览
-        </button>
+        <input
+          id={id}
+          value={value}
+          title={value}
+          disabled={disabled}
+          readOnly={disabled}
+          onChange={(event) => onChange?.(event.target.value)}
+        />
+        {onBrowse ? (
+          <button className="settings-button browse" disabled={disabled} onClick={onBrowse}>
+            浏览
+          </button>
+        ) : (
+          <span className="settings-button browse readonly-placeholder" aria-hidden="true">
+            {readonlyText}
+          </span>
+        )}
       </div>
     </div>
   );

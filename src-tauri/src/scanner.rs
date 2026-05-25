@@ -3,7 +3,7 @@ use crate::domain::{ScanInput, ScanResult, ScannedSubtitle, ScannedVideo};
 use crate::error::{AppError, AppResult};
 use crate::parser::{
     detect_language, natural_path_cmp, parse_episode_batch, parse_episode_batch_with_crf,
-    to_parse_candidates, ParseDecision,
+    to_parse_candidates, EpisodeCandidate, ParseDecision,
 };
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
@@ -81,7 +81,7 @@ fn scan_video(path: PathBuf, parsed: ParseDecision) -> ScannedVideo {
     let episode = accepted.map(|value| value.key);
     let confidence = accepted.map_or(0, |value| value.confidence);
     let episode_key = episode.map(|value| value.to_string());
-    let parse_candidates = to_parse_candidates(&parsed.candidates);
+    let parse_candidates = to_parse_candidates(&visible_parse_candidates(&parsed));
     ScannedVideo {
         file_name: file_name(&path),
         extension: extension(&path),
@@ -105,7 +105,7 @@ fn scan_subtitle(path: PathBuf, parsed: ParseDecision) -> ScannedSubtitle {
     let confidence = accepted.map_or(0, |value| value.confidence);
     let episode_key = episode.map(|value| value.to_string());
     let language = detect_language(&path);
-    let parse_candidates = to_parse_candidates(&parsed.candidates);
+    let parse_candidates = to_parse_candidates(&visible_parse_candidates(&parsed));
     ScannedSubtitle {
         file_name: file_name(&path),
         extension: extension(&path),
@@ -149,10 +149,23 @@ fn file_size(path: &Path) -> u64 {
         .unwrap_or(0)
 }
 
+fn visible_parse_candidates(parsed: &ParseDecision) -> Vec<EpisodeCandidate> {
+    match parsed.parsed.as_ref() {
+        Some(accepted) => parsed
+            .candidates
+            .iter()
+            .filter(|candidate| candidate.key == accepted.key)
+            .cloned()
+            .collect(),
+        None => parsed.candidates.clone(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::scan;
-    use crate::domain::{EpisodeKey, ParseStatus, ScanInput};
+    use super::{scan, visible_parse_candidates};
+    use crate::domain::{EpisodeKey, ParseCandidateSource, ParseStatus, ScanInput};
+    use crate::parser::{EpisodeCandidate, ParseDecision, ParsedEpisode};
     use std::error::Error;
     use std::fs;
     use tempfile::tempdir;
@@ -186,5 +199,42 @@ mod tests {
         assert_eq!(result.videos[2].episode, Some(EpisodeKey::new(1, 10)));
 
         Ok(())
+    }
+
+    #[test]
+    fn accepted_parse_evidence_only_exposes_matching_episode_candidates() {
+        let accepted_key = EpisodeKey::new(1, 11);
+        let decision = ParseDecision {
+            parsed: Some(ParsedEpisode {
+                key: accepted_key,
+                confidence: 90,
+                candidates: Vec::new(),
+                status: ParseStatus::Accepted,
+                notes: Vec::new(),
+            }),
+            status: ParseStatus::Accepted,
+            notes: Vec::new(),
+            candidates: vec![
+                candidate(EpisodeKey::new(1, 1), 90),
+                candidate(accepted_key, 90),
+                candidate(accepted_key, 76),
+            ],
+        };
+
+        let visible = visible_parse_candidates(&decision);
+
+        assert_eq!(visible.len(), 2);
+        assert!(visible
+            .iter()
+            .all(|candidate| candidate.key == accepted_key));
+    }
+
+    fn candidate(key: EpisodeKey, confidence: u8) -> EpisodeCandidate {
+        EpisodeCandidate {
+            key,
+            confidence,
+            source: ParseCandidateSource::Rule,
+            note: "test candidate".to_owned(),
+        }
     }
 }

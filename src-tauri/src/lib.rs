@@ -23,7 +23,8 @@ pub fn run() -> Result<(), tauri::Error> {
             commands::save_local_library_entry,
             commands::load_local_library,
             commands::extract_parse_token_features,
-            commands::save_parse_training_sample
+            commands::save_parse_training_sample,
+            commands::settings_storage_paths
         ])
         .run(tauri::generate_context!())
 }

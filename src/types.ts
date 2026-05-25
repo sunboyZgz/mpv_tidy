@@ -105,6 +105,12 @@ export interface SaveParseTrainingSampleRequest {
   note: string | null;
 }
 
+export interface SettingsStoragePaths {
+  trainingDataDir: string;
+  trainingSampleFile: string;
+  crfModelFile: string;
+}
+
 export interface ScannedVideo {
   path: string;
   fileName: string;
