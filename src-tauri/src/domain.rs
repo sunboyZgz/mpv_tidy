@@ -204,6 +204,54 @@ pub struct SettingsStoragePaths {
     pub training_data_dir: PathBuf,
     pub training_sample_file: PathBuf,
     pub crf_model_file: PathBuf,
+    pub app_settings_file: PathBuf,
+    pub local_library_file: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CoverStrategy {
+    #[serde(rename = "local-first-then-screenshot")]
+    #[default]
+    LocalFirstThenScreenshot,
+    #[serde(rename = "local-only")]
+    LocalOnly,
+    #[serde(rename = "screenshot-only")]
+    ScreenshotOnly,
+    #[serde(rename = "disabled")]
+    Disabled,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WatchStatus {
+    Watched,
+    Partial,
+    #[default]
+    Unwatched,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubtitlePreferenceSnapshot {
+    pub primary_language: LanguageCode,
+    pub secondary_language: Option<LanguageCode>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppSettings {
+    pub schema_version: u16,
+    pub mpv_executable_path: PathBuf,
+    pub default_output_dir: PathBuf,
+    pub anime_library_root_dir: PathBuf,
+    pub temp_dir: PathBuf,
+    pub default_primary_subtitle_language: LanguageCode,
+    pub default_secondary_subtitle_language: LanguageCode,
+    pub remember_playback_progress: bool,
+    pub auto_scan_anime_library_on_startup: bool,
+    pub auto_save_watch_progress: bool,
+    pub default_cover_strategy: CoverStrategy,
+    pub updated_at_unix: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -383,6 +431,17 @@ pub struct OrganizeExecutionResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct OrganizeProgressEvent {
+    pub total: usize,
+    pub processed: usize,
+    pub current_episode_key: Option<String>,
+    pub current_destination: Option<PathBuf>,
+    pub status: FileOperationStatus,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AnimeSubMap {
     pub app_version: String,
     pub project_name: String,
@@ -417,6 +476,8 @@ pub struct MpvLaunchRequest {
 pub struct MpvLaunchResult {
     pub process_id: u32,
     pub argument_count: usize,
+    pub reused_existing: bool,
+    pub switched_video: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -428,6 +489,14 @@ pub struct LibraryEpisodeRecord {
     pub secondary_subtitle_path: Option<PathBuf>,
     pub subtitle_count: usize,
     pub status: MatchStatus,
+    #[serde(default)]
+    pub watch_status: WatchStatus,
+    #[serde(default)]
+    pub last_position_sec: Option<u64>,
+    #[serde(default)]
+    pub progress_percent: Option<u8>,
+    #[serde(default)]
+    pub updated_at_unix: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -438,23 +507,52 @@ pub struct SaveLocalLibraryRequest {
     pub output_dir: PathBuf,
     pub mode: OrganizeMode,
     pub episodes: Vec<LibraryEpisodeRecord>,
+    pub subtitle_preference_snapshot: Option<SubtitlePreferenceSnapshot>,
+    pub cover_strategy_snapshot: Option<CoverStrategy>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalAnimeLibraryEntry {
+    #[serde(default)]
+    pub id: String,
     pub project_name: String,
     pub season: String,
     pub output_dir: PathBuf,
     pub mode: OrganizeMode,
     pub episode_count: usize,
+    #[serde(default)]
+    pub subtitle_preference_snapshot: Option<SubtitlePreferenceSnapshot>,
+    #[serde(default)]
+    pub cover_strategy_snapshot: Option<CoverStrategy>,
     pub episodes: Vec<LibraryEpisodeRecord>,
+    #[serde(default)]
+    pub created_at_unix: u64,
+    #[serde(default)]
+    pub updated_at_unix: u64,
+    #[serde(default)]
     pub organized_at_unix: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalAnimeLibraryFile {
+    #[serde(default = "default_schema_version")]
+    pub schema_version: u16,
     pub app_version: String,
     pub entries: Vec<LocalAnimeLibraryEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateLibraryEpisodeProgressRequest {
+    pub entry_id: String,
+    pub episode_key: String,
+    pub watch_status: WatchStatus,
+    pub last_position_sec: Option<u64>,
+    pub progress_percent: Option<u8>,
+}
+
+fn default_schema_version() -> u16 {
+    1
 }

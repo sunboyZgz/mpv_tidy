@@ -9,35 +9,29 @@ import {
   Save,
 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { loadSettingsStoragePaths, selectDirectory, selectFile } from "../../services/tauriCommands";
+import {
+  loadAppSettings,
+  loadSettingsStoragePaths,
+  resetAppSettings,
+  saveAppSettings,
+  selectDirectory,
+  selectFile,
+} from "../../services/tauriCommands";
 import { asset, browserPreviewMessage, chipClass, isTauriRuntime } from "../../shared/utils";
+import type { AppSettings, CoverStrategy } from "../../types";
 import "./settings.css";
 
 type SubtitleLanguage = "zh-Hans" | "zh-Hant" | "en" | "ja";
-type CoverStrategy =
-  | "local-first-then-screenshot"
-  | "local-only"
-  | "screenshot-only"
-  | "disabled";
 type PathSettingType = "mpvExecutablePath" | "defaultOutputDir" | "animeLibraryRootDir" | "tempDir";
 const previewTrainingDataDir = "C:\\Users\\User\\AppData\\Roaming\\com.mpvtidy.animesubtitlemanager";
 
-interface SettingsState {
-  mpvExecutablePath: string;
-  defaultOutputDir: string;
-  animeLibraryRootDir: string;
-  tempDir: string;
+type SettingsState = AppSettings & {
   trainingDataDir: string;
-  defaultPrimarySubtitleLanguage: SubtitleLanguage;
-  defaultSecondarySubtitleLanguage: SubtitleLanguage;
-  rememberPlaybackProgress: boolean;
-  autoScanAnimeLibraryOnStartup: boolean;
-  autoSaveWatchProgress: boolean;
-  defaultCoverStrategy: CoverStrategy;
-}
+};
 
 const defaultSettings: SettingsState = {
-  mpvExecutablePath: "C:\\Program Files\\mpv\\mpv.exe",
+  schemaVersion: 1,
+  mpvExecutablePath: "mpv",
   defaultOutputDir: "D:\\整理输出",
   animeLibraryRootDir: "D:\\AnimeLibrary",
   tempDir: "C:\\Users\\User\\AppData\\Local\\mpv_tidy\\temp",
@@ -48,6 +42,7 @@ const defaultSettings: SettingsState = {
   autoScanAnimeLibraryOnStartup: true,
   autoSaveWatchProgress: true,
   defaultCoverStrategy: "local-first-then-screenshot",
+  updatedAtUnix: 0,
 };
 
 const languageOptions: Array<{ value: SubtitleLanguage; label: string; summary: string }> = [
@@ -72,12 +67,25 @@ function loadSettings(): SettingsState {
   return defaultSettings;
 }
 
-async function saveSettings(_settings: SettingsState) {
-  return;
+async function saveSettings(settings: SettingsState) {
+  if (!isTauriRuntime()) {
+    return settings;
+  }
+  const saved = await saveAppSettings(toAppSettings(settings));
+  return withTrainingDataDir(saved, settings.trainingDataDir);
 }
 
 function resetSettingsToDefault(trainingDataDir = defaultSettings.trainingDataDir): SettingsState {
   return { ...defaultSettings, trainingDataDir };
+}
+
+function toAppSettings(settings: SettingsState): AppSettings {
+  const { trainingDataDir: _trainingDataDir, ...appSettings } = settings;
+  return appSettings;
+}
+
+function withTrainingDataDir(settings: AppSettings, trainingDataDir: string): SettingsState {
+  return { ...settings, trainingDataDir };
 }
 
 export function SettingsPage({ showToast }: { showToast: (message: string) => void }) {
@@ -103,16 +111,17 @@ export function SettingsPage({ showToast }: { showToast: (message: string) => vo
     }
 
     let mounted = true;
-    loadSettingsStoragePaths()
-      .then((paths) => {
+    Promise.all([loadAppSettings(), loadSettingsStoragePaths()])
+      .then(([loadedSettings, paths]) => {
         if (!mounted) {
           return;
         }
-        setSavedSettings((current) => ({ ...current, trainingDataDir: paths.trainingDataDir }));
-        setSettings((current) => ({ ...current, trainingDataDir: paths.trainingDataDir }));
+        const next = withTrainingDataDir(loadedSettings, paths.trainingDataDir);
+        setSavedSettings(next);
+        setSettings(next);
       })
       .catch((error) => {
-        showToast(`训练数据目录读取失败：${String(error)}`);
+        showToast(`设置读取失败：${String(error)}`);
       });
 
     return () => {
@@ -133,9 +142,14 @@ export function SettingsPage({ showToast }: { showToast: (message: string) => vo
   }
 
   async function handleSave() {
-    await saveSettings(settings);
-    setSavedSettings(settings);
-    showToast("设置已保存");
+    try {
+      const saved = await saveSettings(settings);
+      setSettings(saved);
+      setSavedSettings(saved);
+      showToast("设置已保存");
+    } catch (error) {
+      showToast(`设置保存失败：${String(error)}`);
+    }
   }
 
   function handleCancel() {
@@ -148,8 +162,21 @@ export function SettingsPage({ showToast }: { showToast: (message: string) => vo
     if (!confirmed) {
       return;
     }
-    setSettings(resetSettingsToDefault(settings.trainingDataDir));
-    showToast("已恢复默认设置");
+    if (!isTauriRuntime()) {
+      setSettings(resetSettingsToDefault(settings.trainingDataDir));
+      showToast("已恢复默认设置");
+      return;
+    }
+    resetAppSettings()
+      .then((next) => {
+        const restored = withTrainingDataDir(next, settings.trainingDataDir);
+        setSettings(restored);
+        setSavedSettings(restored);
+        showToast("已恢复默认设置");
+      })
+      .catch((error) => {
+        showToast(`恢复默认失败：${String(error)}`);
+      });
   }
 
   return (

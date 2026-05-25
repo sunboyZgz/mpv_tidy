@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import type {
   BuildOrganizePlanRequest,
+  AppSettings,
   LocalAnimeLibraryEntry,
   LocalAnimeLibraryFile,
   OrganizeExecutionResult,
@@ -12,6 +13,7 @@ import type {
   ScanAndMatchResult,
   ScanInput,
   TokenFeatures,
+  UpdateLibraryEpisodeProgressRequest,
 } from "../types";
 
 export interface MpvLaunchRequest {
@@ -20,6 +22,13 @@ export interface MpvLaunchRequest {
   primarySubtitle: string | null;
   secondarySubtitle: string | null;
   extraArgs: string[];
+}
+
+export interface MpvLaunchResult {
+  processId: number;
+  argumentCount: number;
+  reusedExisting: boolean;
+  switchedVideo: boolean;
 }
 
 export async function selectDirectory() {
@@ -60,6 +69,10 @@ export function loadLocalLibrary() {
   return invoke<LocalAnimeLibraryFile>("load_local_library");
 }
 
+export function updateLibraryEpisodeProgress(request: UpdateLibraryEpisodeProgressRequest) {
+  return invoke<LocalAnimeLibraryEntry>("update_library_episode_progress", { request });
+}
+
 export function extractParseTokenFeatures(path: string) {
   return invoke<TokenFeatures[]>("extract_parse_token_features", { path });
 }
@@ -72,8 +85,20 @@ export function loadSettingsStoragePaths() {
   return invoke<SettingsStoragePaths>("settings_storage_paths");
 }
 
+export function loadAppSettings() {
+  return invoke<AppSettings>("load_app_settings");
+}
+
+export function saveAppSettings(settings: AppSettings) {
+  return invoke<AppSettings>("save_app_settings", { settings });
+}
+
+export function resetAppSettings() {
+  return invoke<AppSettings>("reset_app_settings");
+}
+
 export function launchMpv(request: MpvLaunchRequest) {
-  return invoke("launch_mpv", { request });
+  return invoke<MpvLaunchResult>("launch_mpv", { request });
 }
 
 export function revealPath(path: string) {

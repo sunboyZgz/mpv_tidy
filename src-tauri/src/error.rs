@@ -21,6 +21,8 @@ pub enum AppError {
     LibrarySave(String),
     #[error("CRF model error: {0}")]
     CrfModel(String),
+    #[error("界面事件发送失败：{0}")]
+    UiEvent(String),
 }
 
 pub type AppResult<T> = Result<T, AppError>;

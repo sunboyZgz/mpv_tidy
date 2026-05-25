@@ -1,6 +1,12 @@
 import { ChevronLeft, ChevronRight, Edit3, FolderOpen, Minus, Play, Plus, RefreshCcw, RotateCcw, Search, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { launchMpv, loadLocalLibrary, revealPath as revealPathCommand } from "../../services/tauriCommands";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  launchMpv,
+  loadAppSettings,
+  loadLocalLibrary,
+  revealPath as revealPathCommand,
+  updateLibraryEpisodeProgress,
+} from "../../services/tauriCommands";
 import {
   asset,
   fileNameFromPath,
@@ -11,9 +17,9 @@ import {
   unique,
 } from "../../shared/utils";
 import type { LanguageCode, LibraryEpisodeRecord, LocalAnimeLibraryEntry } from "../../types";
+import type { AppSettings, WatchStatus } from "../../types";
 import "./localAnime.css";
 
-type WatchStatus = "watched" | "partial" | "unwatched";
 type SubtitleFormat = "ass" | "srt" | "ssa" | "vtt" | "unknown";
 type DrawerMode = "closed" | "playback";
 
@@ -103,6 +109,21 @@ const watchStatusLabel: Record<WatchStatus, string> = {
   unwatched: "未观看",
 };
 
+const fallbackAppSettings: AppSettings = {
+  schemaVersion: 1,
+  mpvExecutablePath: "mpv",
+  defaultOutputDir: "D:\\整理输出",
+  animeLibraryRootDir: "D:\\AnimeLibrary",
+  tempDir: "C:\\Users\\User\\AppData\\Local\\mpv_tidy\\temp",
+  defaultPrimarySubtitleLanguage: "zh-Hans",
+  defaultSecondarySubtitleLanguage: "ja",
+  rememberPlaybackProgress: true,
+  autoScanAnimeLibraryOnStartup: true,
+  autoSaveWatchProgress: true,
+  defaultCoverStrategy: "local-first-then-screenshot",
+  updatedAtUnix: 0,
+};
+
 export function useLocalAnimePlayback() {
   const [drawer, setDrawer] = useState<DrawerState>({ mode: "playback", episodeId: null });
 
@@ -136,8 +157,10 @@ export function LocalAnimePage({
   const [rememberOffset, setRememberOffset] = useState(true);
   const [offsetPrefs, setOffsetPrefs] = useState<Record<string, DirectorySubtitleOffsetPreference>>({});
   const [isLaunching, setIsLaunching] = useState(false);
+  const [appSettings, setAppSettings] = useState<AppSettings>(fallbackAppSettings);
   const [panelMessage, setPanelMessage] = useState("选择剧集后可调整字幕并启动 MPV。");
   const [editingAnime, setEditingAnime] = useState<LocalAnimeEntryUi | null>(null);
+  const launchInFlightRef = useRef(false);
 
   const filteredLibrary = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -199,7 +222,19 @@ export function LocalAnimePage({
     if (!isTauriRuntime()) {
       return;
     }
-    void refreshLibrary();
+    loadAppSettings()
+      .then((settings) => {
+        setAppSettings(settings);
+        if (settings.autoScanAnimeLibraryOnStartup) {
+          void refreshLibrary();
+        } else {
+          setPanelMessage("已按设置跳过启动时刷新，可手动刷新本地动漫库。");
+        }
+      })
+      .catch((error) => {
+        setPanelMessage(`设置读取失败：${String(error)}`);
+        void refreshLibrary();
+      });
   }, []);
 
   useEffect(() => {
@@ -256,13 +291,18 @@ export function LocalAnimePage({
       return;
     }
     const primary =
-      selectedEpisode.subtitles.find((subtitle) => subtitle.role === "primary") ?? selectedEpisode.subtitles[0];
+      selectedEpisode.subtitles.find((subtitle) => subtitle.language === appSettings.defaultPrimarySubtitleLanguage) ??
+      selectedEpisode.subtitles.find((subtitle) => subtitle.role === "primary") ??
+      selectedEpisode.subtitles[0];
     const secondary =
-      selectedEpisode.subtitles.find((subtitle) => subtitle.role === "secondary") ??
+      selectedEpisode.subtitles.find(
+        (subtitle) => subtitle.language === appSettings.defaultSecondarySubtitleLanguage && subtitle.id !== primary?.id,
+      ) ??
+      selectedEpisode.subtitles.find((subtitle) => subtitle.role === "secondary" && subtitle.id !== primary?.id) ??
       selectedEpisode.subtitles.find((subtitle) => subtitle.id !== primary?.id);
     setPrimarySubtitleId(primary?.id);
     setSecondarySubtitleId(secondary?.id);
-  }, [selectedEpisode]);
+  }, [appSettings.defaultPrimarySubtitleLanguage, appSettings.defaultSecondarySubtitleLanguage, selectedEpisode]);
 
   async function refreshLibrary() {
     if (!isTauriRuntime()) {
@@ -300,6 +340,10 @@ export function LocalAnimePage({
   }
 
   async function playWithMpv() {
+    if (launchInFlightRef.current) {
+      setPanelMessage("MPV 正在处理上一次播放请求。");
+      return;
+    }
     if (!selectedEpisode) {
       setPanelMessage("请先选择一个剧集。");
       return;
@@ -313,8 +357,10 @@ export function LocalAnimePage({
       return;
     }
 
+    launchInFlightRef.current = true;
     setIsLaunching(true);
     const extraArgs: string[] = [];
+    extraArgs.push(appSettings.rememberPlaybackProgress ? "--save-position-on-quit" : "--no-resume-playback");
     if (primaryOffset !== 0) {
       extraArgs.push(`--sub-delay=${primaryOffset.toFixed(1)}`);
     }
@@ -325,6 +371,7 @@ export function LocalAnimePage({
     if (!isTauriRuntime()) {
       window.setTimeout(() => {
         setIsLaunching(false);
+        launchInFlightRef.current = false;
         markEpisodeWatched(selectedEpisode.id, "partial");
         showToast("MPV 已启动");
       }, 320);
@@ -332,20 +379,38 @@ export function LocalAnimePage({
     }
 
     try {
-      await launchMpv({
-        mpvPath: "mpv",
+      const result = await launchMpv({
+        mpvPath: appSettings.mpvExecutablePath,
         videoPath: selectedEpisode.videoPath,
         primarySubtitle: selectedPrimarySubtitle?.path ?? null,
         secondarySubtitle: selectedSecondarySubtitle?.path ?? null,
         extraArgs,
       });
       markEpisodeWatched(selectedEpisode.id, "partial");
-      showToast("MPV 已启动");
+      if (appSettings.autoSaveWatchProgress) {
+        await persistEpisodeProgress(selectedEpisode, "partial");
+      }
+      showToast(result.switchedVideo ? `已切换到 ${selectedEpisode.episodeKey}` : "MPV 已启动");
     } catch (error) {
       setPanelMessage(String(error));
     } finally {
       setIsLaunching(false);
+      launchInFlightRef.current = false;
     }
+  }
+
+  async function persistEpisodeProgress(episode: LocalEpisode, status: WatchStatus) {
+    if (!selectedAnime || !isTauriRuntime()) {
+      return;
+    }
+    const updated = await updateLibraryEpisodeProgress({
+      entryId: selectedAnime.id,
+      episodeKey: episode.episodeKey,
+      watchStatus: status,
+      lastPositionSec: episode.lastPositionSec ?? null,
+      progressPercent: Math.max(episode.progressPercent ?? 0, 12),
+    });
+    setLibrary((current) => upsertAnimeEntry(current, libraryEntryToUi(updated)));
   }
 
   function markEpisodeWatched(episodeId: string, status: WatchStatus) {
@@ -1097,8 +1162,9 @@ function libraryEntryToUi(entry: LocalAnimeLibraryEntry): LocalAnimeEntryUi {
     subtitleDirs,
     subtitleLanguages: unique(episodes.flatMap((episode) => episode.subtitles.map((subtitle) => subtitle.language))),
     episodes,
-    createdAt: dateFromUnix(entry.organizedAtUnix),
-    updatedAt: dateFromUnix(entry.organizedAtUnix),
+    lastWatchedEpisodeId: episodes.find((episode) => episode.watchStatus !== "unwatched")?.id,
+    createdAt: dateFromUnix(entry.createdAtUnix || entry.organizedAtUnix),
+    updatedAt: dateFromUnix(entry.updatedAtUnix || entry.organizedAtUnix),
   };
 }
 
@@ -1116,8 +1182,9 @@ function libraryEpisodeToUi(record: LibraryEpisodeRecord, entryId: string): Loca
     title: record.episodeKey,
     videoPath: record.videoPath ?? "",
     subtitles: dedupedSubtitles,
-    watchStatus: "unwatched",
-    progressPercent: 0,
+    watchStatus: record.watchStatus ?? "unwatched",
+    lastPositionSec: record.lastPositionSec ?? undefined,
+    progressPercent: record.progressPercent ?? 0,
   };
 }
 
@@ -1135,6 +1202,9 @@ function subtitleFromPath(path: string | null, id: string, role: LocalSubtitle["
 }
 
 function libraryEntryId(entry: LocalAnimeLibraryEntry) {
+  if (entry.id) {
+    return entry.id;
+  }
   const raw = `${entry.projectName}-${entry.season}-${entry.outputDir}`;
   const normalized = raw.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   return normalized || `library-${entry.organizedAtUnix}`;

@@ -1,7 +1,7 @@
 use crate::domain::{
     AnimeSubMap, AnimeSubMapEpisode, BuildOrganizePlanRequest, CollisionAction, EpisodeMatch,
     FileOperationKind, FileOperationStatus, OrganizeExecutionResult, OrganizeMode, OrganizePlan,
-    OrganizePlanItem, OrganizePlanSummary, SubtitleCandidate, SubtitleRole,
+    OrganizePlanItem, OrganizePlanSummary, OrganizeProgressEvent, SubtitleCandidate, SubtitleRole,
 };
 use crate::error::{AppError, AppResult};
 use std::fs;
@@ -11,13 +11,15 @@ const APP_VERSION: &str = "0.1.0";
 
 pub fn build_plan(request: BuildOrganizePlanRequest) -> AppResult<OrganizePlan> {
     let safe_project_name = sanitize_windows_file_name(&request.project_name);
+    let project_output_dir =
+        project_output_dir(&request.output_dir, &safe_project_name, &request.season);
     let mut items = Vec::new();
     let mut episodes = Vec::new();
 
     for episode_match in &request.matches {
         let map_episode = add_match_items(
             episode_match,
-            &request.output_dir,
+            &project_output_dir,
             &safe_project_name,
             &mut items,
         );
@@ -37,12 +39,12 @@ pub fn build_plan(request: BuildOrganizePlanRequest) -> AppResult<OrganizePlan> 
         .iter()
         .filter(|item| item.kind == FileOperationKind::Subtitle)
         .count();
-    let map_file_path = request.output_dir.join("anime-sub-map.json");
+    let map_file_path = project_output_dir.join("anime-sub-map.json");
     let project_map = AnimeSubMap {
         app_version: APP_VERSION.to_owned(),
         project_name: request.project_name,
         season: request.season,
-        output_dir: request.output_dir.to_path_buf(),
+        output_dir: project_output_dir.to_path_buf(),
         primary_language: request.primary_language,
         secondary_language: request.secondary_language,
         episodes,
@@ -51,7 +53,7 @@ pub fn build_plan(request: BuildOrganizePlanRequest) -> AppResult<OrganizePlan> 
     Ok(OrganizePlan {
         project_name: project_map.project_name.to_owned(),
         season: project_map.season.to_owned(),
-        output_dir: request.output_dir,
+        output_dir: project_output_dir,
         mode: request.mode,
         items,
         has_conflicts: conflict_count > 0,
@@ -66,24 +68,49 @@ pub fn build_plan(request: BuildOrganizePlanRequest) -> AppResult<OrganizePlan> 
     })
 }
 
-pub fn execute_plan(plan: OrganizePlan) -> AppResult<OrganizeExecutionResult> {
-    let mut result_items = Vec::with_capacity(plan.items.len());
+pub fn execute_plan_with_progress<F>(
+    plan: OrganizePlan,
+    mut emit_progress: F,
+) -> AppResult<OrganizeExecutionResult>
+where
+    F: FnMut(OrganizeProgressEvent) -> AppResult<()>,
+{
+    let total = plan.items.len();
+    let mut result_items = Vec::with_capacity(total);
+    emit_progress(OrganizeProgressEvent {
+        total,
+        processed: 0,
+        current_episode_key: None,
+        current_destination: None,
+        status: FileOperationStatus::Planned,
+        message: "整理任务已开始。".to_owned(),
+    })?;
 
-    for mut item in plan.items {
+    for (index, mut item) in plan.items.into_iter().enumerate() {
         if item.collision && item.collision_action == CollisionAction::Skip {
             item.status = FileOperationStatus::Skipped;
-            item.message = Some("目标文件已存在，已跳过".to_owned());
+            item.message = Some("目标文件已存在，已跳过。".to_owned());
+            emit_item_progress(&mut emit_progress, total, index + 1, &item)?;
             result_items.push(item);
             continue;
         }
 
         execute_item(&mut item, plan.mode)?;
+        emit_item_progress(&mut emit_progress, total, index + 1, &item)?;
         result_items.push(item);
     }
 
     fs::create_dir_all(&plan.output_dir)?;
     let map_json = serde_json::to_string_pretty(&plan.project_map)?;
     fs::write(&plan.map_file_path, map_json)?;
+    emit_progress(OrganizeProgressEvent {
+        total,
+        processed: total,
+        current_episode_key: None,
+        current_destination: Some(plan.map_file_path.to_path_buf()),
+        status: FileOperationStatus::Copied,
+        message: "整理映射文件已写入。".to_owned(),
+    })?;
 
     let message = match plan.mode {
         OrganizeMode::Copy => {
@@ -96,6 +123,41 @@ pub fn execute_plan(plan: OrganizePlan) -> AppResult<OrganizeExecutionResult> {
     Ok(OrganizeExecutionResult {
         items: result_items,
         map_written: true,
+        message,
+    })
+}
+
+fn project_output_dir(base_output_dir: &Path, project_name: &str, season: &str) -> PathBuf {
+    let folder_name = sanitize_windows_file_name(&format!("{project_name} {season}"));
+    if base_output_dir
+        .file_name()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| value.eq_ignore_ascii_case(&folder_name))
+    {
+        return base_output_dir.to_path_buf();
+    }
+    base_output_dir.join(folder_name)
+}
+
+fn emit_item_progress<F>(
+    emit_progress: &mut F,
+    total: usize,
+    processed: usize,
+    item: &OrganizePlanItem,
+) -> AppResult<()>
+where
+    F: FnMut(OrganizeProgressEvent) -> AppResult<()>,
+{
+    let message = item
+        .message
+        .to_owned()
+        .unwrap_or_else(|| "文件处理完成。".to_owned());
+    emit_progress(OrganizeProgressEvent {
+        total,
+        processed,
+        current_episode_key: Some(item.episode_key.to_owned()),
+        current_destination: Some(item.destination.to_path_buf()),
+        status: item.status,
         message,
     })
 }
@@ -227,7 +289,7 @@ fn execute_item(item: &mut OrganizePlanItem, mode: OrganizeMode) -> AppResult<()
         match item.collision_action {
             CollisionAction::Skip => {
                 item.status = FileOperationStatus::Skipped;
-                item.message = Some("目标文件已存在，已跳过".to_owned());
+                item.message = Some("目标文件已存在，已跳过。".to_owned());
                 return Ok(());
             }
             CollisionAction::Replace => fs::remove_file(&item.destination)?,
@@ -241,13 +303,13 @@ fn execute_item(item: &mut OrganizePlanItem, mode: OrganizeMode) -> AppResult<()
         OrganizeMode::Copy => {
             fs::copy(&item.source, &item.destination)?;
             item.status = FileOperationStatus::Copied;
-            item.message = Some("已复制".to_owned());
+            item.message = Some("已复制。".to_owned());
         }
         OrganizeMode::Move => {
             fs::copy(&item.source, &item.destination)?;
             fs::remove_file(&item.source)?;
             item.status = FileOperationStatus::Moved;
-            item.message = Some("已移动".to_owned());
+            item.message = Some("已移动。".to_owned());
         }
     }
     Ok(())
@@ -336,14 +398,14 @@ fn is_reserved_windows_name(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_plan, execute_plan};
+    use super::{build_plan, execute_plan_with_progress};
     use crate::domain::{
         BuildOrganizePlanRequest, CollisionAction, EpisodeKey, EpisodeMatch, LanguageCode,
         MatchStatus, OrganizeMode, ParseStatus, ScannedVideo, SubtitleCandidate, SubtitleRole,
     };
     use std::error::Error;
     use std::fs;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use tempfile::tempdir;
 
     #[test]
@@ -358,16 +420,61 @@ mod tests {
         fs::write(&sub, "sub")?;
 
         let plan = build_plan(request(&output, OrganizeMode::Copy, &video, &sub))?;
-        let result = execute_plan(plan)?;
+        let result = execute_plan_for_test(plan)?;
 
         assert!(video.exists());
         assert!(sub.exists());
-        assert!(output
+        assert!(project_root(&output)
             .join("videos")
             .join("Jujutsu Kaisen S01E01.mkv")
             .exists());
-        assert!(output.join("anime-sub-map.json").exists());
+        assert!(project_root(&output).join("anime-sub-map.json").exists());
         assert!(result.map_written);
+        Ok(())
+    }
+
+    #[test]
+    fn plan_output_root_includes_project_and_season_folder() -> Result<(), Box<dyn Error>> {
+        let temp = tempdir()?;
+        let source = temp.path().join("src");
+        let output = temp.path().join("out");
+        fs::create_dir_all(&source)?;
+        let video = source.join("S01E01.mkv");
+        let sub = source.join("S01E01.zh-Hans.ass");
+        fs::write(&video, "video")?;
+        fs::write(&sub, "sub")?;
+
+        let plan = build_plan(request(&output, OrganizeMode::Copy, &video, &sub))?;
+
+        assert_eq!(plan.output_dir, project_root(&output));
+        assert_eq!(
+            plan.map_file_path,
+            project_root(&output).join("anime-sub-map.json")
+        );
+        assert!(plan.items.iter().any(|item| {
+            item.destination
+                == project_root(&output)
+                    .join("videos")
+                    .join("Jujutsu Kaisen S01E01.mkv")
+        }));
+        Ok(())
+    }
+
+    #[test]
+    fn does_not_duplicate_project_folder_when_output_already_points_to_it(
+    ) -> Result<(), Box<dyn Error>> {
+        let temp = tempdir()?;
+        let source = temp.path().join("src");
+        let output = project_root(temp.path());
+        fs::create_dir_all(&source)?;
+        let video = source.join("S01E01.mkv");
+        let sub = source.join("S01E01.zh-Hans.ass");
+        fs::write(&video, "video")?;
+        fs::write(&sub, "sub")?;
+
+        let plan = build_plan(request(&output, OrganizeMode::Copy, &video, &sub))?;
+
+        assert_eq!(plan.output_dir, output);
         Ok(())
     }
 
@@ -383,11 +490,11 @@ mod tests {
         fs::write(&sub, "sub")?;
 
         let plan = build_plan(request(&output, OrganizeMode::Move, &video, &sub))?;
-        execute_plan(plan)?;
+        execute_plan_for_test(plan)?;
 
         assert!(!video.exists());
         assert!(!sub.exists());
-        assert!(output
+        assert!(project_root(&output)
             .join("videos")
             .join("Jujutsu Kaisen S01E01.mkv")
             .exists());
@@ -400,10 +507,12 @@ mod tests {
         let source = temp.path().join("src");
         let output = temp.path().join("out");
         fs::create_dir_all(&source)?;
-        fs::create_dir_all(output.join("videos"))?;
+        fs::create_dir_all(project_root(&output).join("videos"))?;
         let video = source.join("S01E01.mkv");
         let sub = source.join("S01E01.zh-Hans.ass");
-        let destination = output.join("videos").join("Jujutsu Kaisen S01E01.mkv");
+        let destination = project_root(&output)
+            .join("videos")
+            .join("Jujutsu Kaisen S01E01.mkv");
         fs::write(&video, "video")?;
         fs::write(&sub, "sub")?;
         fs::write(&destination, "existing")?;
@@ -421,13 +530,15 @@ mod tests {
         let source = temp.path().join("src");
         let output = temp.path().join("out");
         fs::create_dir_all(&source)?;
-        fs::create_dir_all(output.join("videos"))?;
+        fs::create_dir_all(project_root(&output).join("videos"))?;
         let video = source.join("S01E01.mkv");
         let sub = source.join("S01E01.zh-Hans.ass");
         fs::write(&video, "video")?;
         fs::write(&sub, "sub")?;
         fs::write(
-            output.join("videos").join("Jujutsu Kaisen S01E01.mkv"),
+            project_root(&output)
+                .join("videos")
+                .join("Jujutsu Kaisen S01E01.mkv"),
             "existing",
         )?;
 
@@ -437,17 +548,31 @@ mod tests {
                 item.collision_action = CollisionAction::Rename;
             }
         }
-        execute_plan(plan)?;
+        execute_plan_for_test(plan)?;
 
-        assert!(output
+        assert!(project_root(&output)
             .join("videos")
             .join("Jujutsu Kaisen S01E01 (1).mkv")
             .exists());
         assert_eq!(
-            fs::read_to_string(output.join("videos").join("Jujutsu Kaisen S01E01.mkv"))?,
+            fs::read_to_string(
+                project_root(&output)
+                    .join("videos")
+                    .join("Jujutsu Kaisen S01E01.mkv")
+            )?,
             "existing"
         );
         Ok(())
+    }
+
+    fn project_root(output: &Path) -> PathBuf {
+        output.join("Jujutsu Kaisen S01")
+    }
+
+    fn execute_plan_for_test(
+        plan: crate::domain::OrganizePlan,
+    ) -> Result<crate::domain::OrganizeExecutionResult, crate::error::AppError> {
+        execute_plan_with_progress(plan, |_| Ok(()))
     }
 
     fn request(

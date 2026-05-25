@@ -17,14 +17,22 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   open: openMock,
 }));
 
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(() => Promise.resolve(() => undefined)),
+}));
+
 beforeEach(() => {
   Object.defineProperty(window, "__TAURI_INTERNALS__", {
     configurable: true,
     value: {},
   });
   invokeMock.mockImplementation((command: string) => {
+    if (command === "load_app_settings" || command === "save_app_settings" || command === "reset_app_settings") {
+      return Promise.resolve(makeAppSettings());
+    }
     if (command === "load_local_library") {
       return Promise.resolve({
+        schemaVersion: 1,
         appVersion: "0.1.0",
         entries: [makeLibraryEntry("Jujutsu Kaisen", 4), makeLibraryEntry("Steins;Gate", 3)],
       });
@@ -36,6 +44,23 @@ beforeEach(() => {
   });
   openMock.mockReset();
 });
+
+function makeAppSettings() {
+  return {
+    schemaVersion: 1,
+    mpvExecutablePath: "mpv",
+    defaultOutputDir: "D:\\整理输出",
+    animeLibraryRootDir: "D:\\AnimeLibrary",
+    tempDir: "C:\\Users\\User\\AppData\\Local\\mpv_tidy\\temp",
+    defaultPrimarySubtitleLanguage: "zh-Hans",
+    defaultSecondarySubtitleLanguage: "en",
+    rememberPlaybackProgress: true,
+    autoScanAnimeLibraryOnStartup: true,
+    autoSaveWatchProgress: true,
+    defaultCoverStrategy: "local-first-then-screenshot",
+    updatedAtUnix: 1_777_000_000,
+  };
+}
 
 async function renderLocalAnimePage() {
   const user = userEvent.setup();
@@ -124,13 +149,23 @@ describe("Project home parser evidence", () => {
     const user = userEvent.setup();
     openMock.mockResolvedValueOnce("D:\\Anime\\videos").mockResolvedValueOnce(["D:\\Anime\\subs"]);
     invokeMock.mockImplementation((command: string) => {
+      if (command === "load_app_settings") {
+        return Promise.resolve(makeAppSettings());
+      }
       if (command === "scan_and_match") {
         return Promise.resolve(makeParserEvidenceScanResult());
       }
       return Promise.resolve(null);
     });
 
-    render(<ProjectHomePage showToast={vi.fn()} onLibraryEntrySaved={vi.fn()} />);
+    render(
+      <ProjectHomePage
+        showToast={vi.fn()}
+        onLibraryEntrySaved={vi.fn()}
+        organizeTasks={[]}
+        setOrganizeTasks={vi.fn()}
+      />,
+    );
 
     await user.click(screen.getAllByRole("button", { name: "更换目录" })[0]);
     await user.click(screen.getByRole("button", { name: "添加字幕目录" }));
@@ -144,13 +179,23 @@ describe("Project home parser evidence", () => {
     const user = userEvent.setup();
     openMock.mockResolvedValueOnce("D:\\Anime\\videos").mockResolvedValueOnce(["D:\\Anime\\subs"]);
     invokeMock.mockImplementation((command: string) => {
+      if (command === "load_app_settings") {
+        return Promise.resolve(makeAppSettings());
+      }
       if (command === "scan_and_match") {
         return Promise.resolve(makeSwitchingEvidenceScanResult());
       }
       return Promise.resolve(null);
     });
 
-    render(<ProjectHomePage showToast={vi.fn()} onLibraryEntrySaved={vi.fn()} />);
+    render(
+      <ProjectHomePage
+        showToast={vi.fn()}
+        onLibraryEntrySaved={vi.fn()}
+        organizeTasks={[]}
+        setOrganizeTasks={vi.fn()}
+      />,
+    );
 
     await user.click(screen.getAllByRole("button", { name: "更换目录" })[0]);
     await user.click(screen.getByRole("button", { name: "添加字幕目录" }));
@@ -180,13 +225,19 @@ describe("Project home parser evidence", () => {
 });
 
 function makeLibraryEntry(projectName: string, episodeCount: number): LocalAnimeLibraryEntry {
+  const now = 1_777_000_000;
   return {
+    id: `${projectName}-S01`.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
     projectName,
     season: "S01",
     outputDir: `D:\\Anime Library\\${projectName} S01`,
     mode: "copy",
     episodeCount,
-    organizedAtUnix: 1_777_000_000,
+    subtitlePreferenceSnapshot: { primaryLanguage: "zh-Hans", secondaryLanguage: "en" },
+    coverStrategySnapshot: "local-first-then-screenshot",
+    createdAtUnix: now,
+    updatedAtUnix: now,
+    organizedAtUnix: now,
     episodes: Array.from({ length: episodeCount }, (_, index) => {
       const episodeKey = `S01E${String(index + 1).padStart(2, "0")}`;
       return {
@@ -196,6 +247,10 @@ function makeLibraryEntry(projectName: string, episodeCount: number): LocalAnime
         secondarySubtitlePath: `D:\\Anime Library\\${projectName} S01\\subs\\en\\${projectName} ${episodeKey}.en.srt`,
         subtitleCount: 2,
         status: "matched",
+        watchStatus: "unwatched",
+        lastPositionSec: null,
+        progressPercent: null,
+        updatedAtUnix: now,
       };
     }),
   };

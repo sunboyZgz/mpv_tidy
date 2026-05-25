@@ -11,6 +11,12 @@ export type SubtitleRole = "primary" | "secondary" | "candidate";
 export type CollisionAction = "skip" | "replace" | "rename";
 export type ParseStatus = "accepted" | "lowConfidence" | "ambiguous" | "rejected";
 export type ParseCandidateSource = "rule" | "template" | "crf";
+export type CoverStrategy =
+  | "local-first-then-screenshot"
+  | "local-only"
+  | "screenshot-only"
+  | "disabled";
+export type WatchStatus = "watched" | "partial" | "unwatched";
 export type ParseSlotLabel =
   | "episode"
   | "season"
@@ -109,6 +115,28 @@ export interface SettingsStoragePaths {
   trainingDataDir: string;
   trainingSampleFile: string;
   crfModelFile: string;
+  appSettingsFile: string;
+  localLibraryFile: string;
+}
+
+export interface AppSettings {
+  schemaVersion: number;
+  mpvExecutablePath: string;
+  defaultOutputDir: string;
+  animeLibraryRootDir: string;
+  tempDir: string;
+  defaultPrimarySubtitleLanguage: Exclude<LanguageCode, "und">;
+  defaultSecondarySubtitleLanguage: Exclude<LanguageCode, "und">;
+  rememberPlaybackProgress: boolean;
+  autoScanAnimeLibraryOnStartup: boolean;
+  autoSaveWatchProgress: boolean;
+  defaultCoverStrategy: CoverStrategy;
+  updatedAtUnix: number;
+}
+
+export interface SubtitlePreferenceSnapshot {
+  primaryLanguage: LanguageCode;
+  secondaryLanguage: LanguageCode | null;
 }
 
 export interface ScannedVideo {
@@ -216,6 +244,15 @@ export interface OrganizeExecutionResult {
   message: string;
 }
 
+export interface OrganizeProgressEvent {
+  total: number;
+  processed: number;
+  currentEpisodeKey: string | null;
+  currentDestination: string | null;
+  status: "planned" | "copied" | "moved" | "skipped" | "failed";
+  message: string;
+}
+
 export interface LibraryEpisodeRecord {
   episodeKey: string;
   videoPath: string | null;
@@ -223,6 +260,10 @@ export interface LibraryEpisodeRecord {
   secondarySubtitlePath: string | null;
   subtitleCount: number;
   status: MatchStatus;
+  watchStatus: WatchStatus;
+  lastPositionSec: number | null;
+  progressPercent: number | null;
+  updatedAtUnix: number;
 }
 
 export interface SaveLocalLibraryRequest {
@@ -231,19 +272,35 @@ export interface SaveLocalLibraryRequest {
   outputDir: string;
   mode: OrganizeMode;
   episodes: LibraryEpisodeRecord[];
+  subtitlePreferenceSnapshot: SubtitlePreferenceSnapshot | null;
+  coverStrategySnapshot: CoverStrategy | null;
 }
 
 export interface LocalAnimeLibraryEntry {
+  id: string;
   projectName: string;
   season: string;
   outputDir: string;
   mode: OrganizeMode;
   episodeCount: number;
+  subtitlePreferenceSnapshot: SubtitlePreferenceSnapshot | null;
+  coverStrategySnapshot: CoverStrategy | null;
   episodes: LibraryEpisodeRecord[];
+  createdAtUnix: number;
+  updatedAtUnix: number;
   organizedAtUnix: number;
 }
 
 export interface LocalAnimeLibraryFile {
+  schemaVersion: number;
   appVersion: string;
   entries: LocalAnimeLibraryEntry[];
+}
+
+export interface UpdateLibraryEpisodeProgressRequest {
+  entryId: string;
+  episodeKey: string;
+  watchStatus: WatchStatus;
+  lastPositionSec: number | null;
+  progressPercent: number | null;
 }

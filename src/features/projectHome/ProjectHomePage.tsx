@@ -1,8 +1,10 @@
-import { Check, ChevronLeft, ChevronRight, Copy, Edit3, FolderOpen, Info, Loader2, RefreshCcw, Rocket, Save } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { Check, ChevronLeft, ChevronRight, Copy, Edit3, FolderOpen, Info, Loader2, Minimize2, RefreshCcw, Rocket, Save } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   buildOrganizePlan,
   executeOrganizePlan,
+  loadAppSettings,
   saveLocalLibraryEntry,
   saveParseTrainingSample,
   scanAndMatch as scanAndMatchCommand,
@@ -19,6 +21,7 @@ import {
   unique,
 } from "../../shared/utils";
 import type {
+  AppSettings,
   CollisionAction,
   EpisodeKey,
   EpisodeMatch,
@@ -28,6 +31,7 @@ import type {
   OrganizeExecutionResult,
   OrganizeMode,
   OrganizePlan,
+  OrganizeProgressEvent,
   SaveLocalLibraryRequest,
   ScanAndMatchResult,
   ScannedSubtitle,
@@ -79,6 +83,21 @@ const parseStatusLabel = {
   rejected: "未识别",
 } as const;
 
+const fallbackAppSettings: AppSettings = {
+  schemaVersion: 1,
+  mpvExecutablePath: "mpv",
+  defaultOutputDir: "D:\\整理输出",
+  animeLibraryRootDir: "D:\\AnimeLibrary",
+  tempDir: "C:\\Users\\User\\AppData\\Local\\mpv_tidy\\temp",
+  defaultPrimarySubtitleLanguage: "zh-Hans",
+  defaultSecondarySubtitleLanguage: "ja",
+  rememberPlaybackProgress: true,
+  autoScanAnimeLibraryOnStartup: true,
+  autoSaveWatchProgress: true,
+  defaultCoverStrategy: "local-first-then-screenshot",
+  updatedAtUnix: 0,
+};
+
 export function useProjectHomeWorkflow() {
   const [drawer, setDrawer] = useState<DrawerState>({ mode: "closed", episodeKey: null });
 
@@ -93,12 +112,29 @@ export function useProjectHomeWorkflow() {
   return { drawer, openDetailDrawer, closeDetailDrawer };
 }
 
+export interface OrganizeTaskUi {
+  id: string;
+  title: string;
+  mode: OrganizeMode;
+  status: "running" | "completed" | "failed";
+  total: number;
+  processed: number;
+  message: string;
+  currentDestination: string | null;
+  startedAt: number;
+  completedAt: number | null;
+}
+
 export function ProjectHomePage({
   showToast,
   onLibraryEntrySaved,
+  organizeTasks,
+  setOrganizeTasks,
 }: {
   showToast: (message: string) => void;
   onLibraryEntrySaved: (entry: LocalAnimeLibraryEntry) => void;
+  organizeTasks: OrganizeTaskUi[];
+  setOrganizeTasks: React.Dispatch<React.SetStateAction<OrganizeTaskUi[]>>;
 }) {
   const [projectName, setProjectName] = useState("Jujutsu Kaisen");
   const [season, setSeason] = useState("S01");
@@ -108,15 +144,20 @@ export function ProjectHomePage({
   const [outputHistory, setOutputHistory] = useState<string[]>([]);
   const [scanState, setScanState] = useState<ScanState>("idle");
   const [scanResult, setScanResult] = useState<ScanAndMatchResult | null>(null);
+  const [appSettings, setAppSettings] = useState<AppSettings>(fallbackAppSettings);
   const [selectedEpisodeKey, setSelectedEpisodeKey] = useState<string | null>(null);
   const { drawer, openDetailDrawer, closeDetailDrawer } = useProjectHomeWorkflow();
   const [organizeMode, setOrganizeMode] = useState<OrganizeMode>("copy");
   const [plan, setPlan] = useState<OrganizePlan | null>(null);
   const [completedPlan, setCompletedPlan] = useState<OrganizePlan | null>(null);
   const [organizedResult, setOrganizedResult] = useState<OrganizeExecutionResult | null>(null);
+  const [isBuildingPlan, setIsBuildingPlan] = useState(false);
+  const [isExecutingPlan, setIsExecutingPlan] = useState(false);
+  const [organizeProgress, setOrganizeProgress] = useState<OrganizeProgressEvent | null>(null);
   const [librarySaved, setLibrarySaved] = useState(false);
   const [message, setMessage] = useState("请选择视频目录、字幕目录和输出目录，然后开始扫描。");
   const [pendingDirectoryAction, setPendingDirectoryAction] = useState<DirectoryAction | null>(null);
+  const activeOrganizeTaskIdRef = useRef<string | null>(null);
   const [drawerDraft, setDrawerDraft] = useState<DrawerDraft>({
     episodeKey: "",
     videoPath: "",
@@ -126,6 +167,7 @@ export function ProjectHomePage({
   });
 
   const matches = scanResult?.matches ?? [];
+  const hasRunningOrganizeTask = organizeTasks.some((task) => task.status === "running");
   const expectedSubtitleCount = Math.max(1, subtitleDirs.length);
   const workflowState: ProjectHomeWorkflowState = {
     projectName,
@@ -156,6 +198,68 @@ export function ProjectHomePage({
       conflict: effectiveStatuses.filter((status) => status === "conflict").length,
     };
   }, [expectedSubtitleCount, matches, scanResult]);
+
+  useEffect(() => {
+    if (!isTauriRuntime()) {
+      setOutputDir((current) => current ?? fallbackAppSettings.defaultOutputDir);
+      return;
+    }
+    loadAppSettings()
+      .then((loaded) => {
+        setAppSettings(loaded);
+        setOutputDir((current) => current ?? loaded.defaultOutputDir);
+      })
+      .catch((error) => {
+        setMessage(`设置读取失败：${String(error)}`);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!isTauriRuntime()) {
+      return;
+    }
+
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+    listen<OrganizeProgressEvent>("organize-progress", (event) => {
+      if (!disposed) {
+        setOrganizeProgress(event.payload);
+        const taskId = activeOrganizeTaskIdRef.current;
+        if (taskId) {
+          setOrganizeTasks((current) =>
+            current.map((task) =>
+              task.id === taskId
+                ? {
+                    ...task,
+                    total: event.payload.total,
+                    processed: event.payload.processed,
+                    message: event.payload.message,
+                    currentDestination: event.payload.currentDestination,
+                  }
+                : task,
+            ),
+          );
+        }
+      }
+    })
+      .then((cleanup) => {
+        if (disposed) {
+          cleanup();
+          return;
+        }
+        unlisten = cleanup;
+      })
+      .catch((error) => {
+        setMessage(`整理进度监听启动失败：${String(error)}`);
+      });
+
+    return () => {
+      disposed = true;
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!selectedMatch) {
@@ -286,6 +390,9 @@ export function ProjectHomePage({
   }
 
   async function startOrganize() {
+    if (isBuildingPlan || isExecutingPlan) {
+      return;
+    }
     if (!outputDir) {
       setMessage("请先选择输出目录。");
       return;
@@ -300,6 +407,7 @@ export function ProjectHomePage({
       return;
     }
 
+    setIsBuildingPlan(true);
     try {
       const result = await buildOrganizePlan({
         projectName,
@@ -307,22 +415,51 @@ export function ProjectHomePage({
         outputDir,
         matches,
         mode: organizeMode,
-        primaryLanguage: "zh-Hans",
-        secondaryLanguage: "ja",
+        primaryLanguage: appSettings.defaultPrimarySubtitleLanguage,
+        secondaryLanguage: appSettings.defaultSecondarySubtitleLanguage,
       });
       setPlan(result);
+      setOrganizeProgress(null);
       setMessage(result.hasConflicts ? "整理计划已生成，存在冲突项，请先确认处理方式。" : "整理计划已生成，请确认执行。");
     } catch (error) {
       setMessage(String(error));
+    } finally {
+      setIsBuildingPlan(false);
     }
   }
 
   async function executePlan() {
-    if (!plan) {
+    if (!plan || isExecutingPlan) {
       return;
     }
+    const taskId = `organize-${Date.now()}`;
+    activeOrganizeTaskIdRef.current = taskId;
+    setOrganizeTasks((current) => [
+      {
+        id: taskId,
+        title: `${plan.projectName} ${plan.season}`,
+        mode: plan.mode,
+        status: "running",
+        total: plan.items.length,
+        processed: 0,
+        message: "整理任务已创建。",
+        currentDestination: null,
+        startedAt: Date.now(),
+        completedAt: null,
+      },
+      ...current,
+    ]);
 
     if (!isTauriRuntime()) {
+      setIsExecutingPlan(true);
+      setOrganizeProgress({
+        total: plan.items.length,
+        processed: plan.items.length,
+        currentEpisodeKey: null,
+        currentDestination: plan.mapFilePath,
+        status: "copied",
+        message: "浏览器预览已模拟整理完成。",
+      });
       setOrganizedResult({
         items: plan.items,
         mapWritten: true,
@@ -331,10 +468,35 @@ export function ProjectHomePage({
       setCompletedPlan(plan);
       setPlan(null);
       setLibrarySaved(false);
+      setIsExecutingPlan(false);
+      setOrganizeTasks((current) =>
+        current.map((task) =>
+          task.id === taskId
+            ? {
+                ...task,
+                status: "completed",
+                processed: task.total,
+                message: "浏览器预览已模拟整理完成。",
+                currentDestination: plan.mapFilePath,
+                completedAt: Date.now(),
+              }
+            : task,
+        ),
+      );
+      activeOrganizeTaskIdRef.current = null;
       setMessage("浏览器预览已模拟整理完成。");
       return;
     }
 
+    setIsExecutingPlan(true);
+    setOrganizeProgress({
+      total: plan.items.length,
+      processed: 0,
+      currentEpisodeKey: null,
+      currentDestination: null,
+      status: "planned",
+      message: "整理任务已提交，正在准备文件操作。",
+    });
     try {
       const result = await executeOrganizePlan(plan);
       setOrganizedResult(result);
@@ -342,10 +504,44 @@ export function ProjectHomePage({
       setPlan(null);
       setLibrarySaved(false);
       setOutputHistory((current) => unique([plan.outputDir, ...current]).slice(0, 3));
+      setOrganizeTasks((current) =>
+        current.map((task) =>
+          task.id === taskId
+            ? {
+                ...task,
+                status: "completed",
+                processed: task.total,
+                message: result.message,
+                currentDestination: plan.mapFilePath,
+                completedAt: Date.now(),
+              }
+            : task,
+        ),
+      );
       setMessage(result.message);
     } catch (error) {
+      setOrganizeTasks((current) =>
+        current.map((task) =>
+          task.id === taskId
+            ? {
+                ...task,
+                status: "failed",
+                message: String(error),
+                completedAt: Date.now(),
+              }
+            : task,
+        ),
+      );
       setMessage(String(error));
+    } finally {
+      setIsExecutingPlan(false);
+      activeOrganizeTaskIdRef.current = null;
     }
+  }
+
+  function minimizeOrganizeTask() {
+    setPlan(null);
+    setMessage("整理任务已缩小到右下角任务列表，可继续浏览其他页面。");
   }
 
   async function saveToLocalAnime() {
@@ -359,13 +555,24 @@ export function ProjectHomePage({
       season,
       outputDir: completedPlan.outputDir,
       mode: completedPlan.mode,
+      subtitlePreferenceSnapshot: {
+        primaryLanguage: appSettings.defaultPrimarySubtitleLanguage,
+        secondaryLanguage: appSettings.defaultSecondarySubtitleLanguage,
+      },
+      coverStrategySnapshot: appSettings.defaultCoverStrategy,
       episodes: matches.map((item) => ({
         episodeKey: item.episodeKey,
-        videoPath: item.video?.path ?? null,
-        primarySubtitlePath: item.primarySubtitle?.path ?? null,
-        secondarySubtitlePath: item.secondarySubtitle?.path ?? null,
+        videoPath: organizedPathFor(organizedResult.items, item.episodeKey, "video", null) ?? item.video?.path ?? null,
+        primarySubtitlePath:
+          organizedPathFor(organizedResult.items, item.episodeKey, "subtitle", "primary") ?? item.primarySubtitle?.path ?? null,
+        secondarySubtitlePath:
+          organizedPathFor(organizedResult.items, item.episodeKey, "subtitle", "secondary") ?? item.secondarySubtitle?.path ?? null,
         subtitleCount: item.candidates.length,
         status: getEffectiveStatus(item, expectedSubtitleCount),
+        watchStatus: "unwatched",
+        lastPositionSec: null,
+        progressPercent: null,
+        updatedAtUnix: 0,
       })),
     };
 
@@ -585,23 +792,10 @@ export function ProjectHomePage({
               {scanState === "scanning" ? <Loader2 className="spin" size={20} /> : <RefreshCcw size={20} />}
               {scanState === "scanning" ? "扫描中..." : scanResult ? "重新扫描" : "开始扫描"}
             </button>
-            <button
-              className={`op-button ${organizeMode === "copy" ? "selected-mode" : ""}`}
-              onClick={() => selectMode("copy")}
-            >
-              <Copy size={20} />
-              复制整理
-            </button>
-            <button
-              className={`op-button ${organizeMode === "move" ? "selected-mode" : ""}`}
-              onClick={() => selectMode("move")}
-            >
-              <FolderOpen size={20} />
-              移动整理
-            </button>
-            <button className="op-button organize" onClick={startOrganize}>
-              <Rocket size={20} />
-              开始整理
+            <OrganizeModePicker mode={organizeMode} onSelect={selectMode} disabled={isBuildingPlan || isExecutingPlan} />
+            <button className="op-button organize" disabled={isBuildingPlan || isExecutingPlan || hasRunningOrganizeTask} onClick={startOrganize}>
+              {isBuildingPlan ? <Loader2 className="spin" size={20} /> : <Rocket size={20} />}
+              {isBuildingPlan ? "生成计划中..." : hasRunningOrganizeTask ? "整理任务进行中" : "开始整理"}
             </button>
             <button
               className="op-button save-library"
@@ -642,9 +836,63 @@ export function ProjectHomePage({
       <div className="statusbar">{message}</div>
 
       {plan && (
-        <PlanModal plan={plan} setPlan={setPlan} updateCollision={updateCollision} executePlan={executePlan} />
+        <PlanModal
+          plan={plan}
+          setPlan={setPlan}
+          updateCollision={updateCollision}
+          executePlan={executePlan}
+          isExecuting={isExecutingPlan}
+          progress={organizeProgress}
+          onMinimize={minimizeOrganizeTask}
+        />
       )}
     </main>
+  );
+}
+
+function OrganizeModePicker(props: {
+  mode: OrganizeMode;
+  disabled: boolean;
+  onSelect: (mode: OrganizeMode) => void;
+}) {
+  const options = [
+    {
+      mode: "copy" as const,
+      icon: <Copy size={17} />,
+      title: "复制",
+      description: "保留原文件",
+    },
+    {
+      mode: "move" as const,
+      icon: <FolderOpen size={17} />,
+      title: "移动",
+      description: "整理后移走源文件",
+    },
+  ];
+
+  return (
+    <div className="organize-mode-picker" role="radiogroup" aria-label="整理方式">
+      {options.map((option) => (
+        <label className={`organize-mode-option ${props.mode === option.mode ? "active" : ""}`} key={option.mode}>
+          <input
+            type="radio"
+            name="organize-mode"
+            value={option.mode}
+            checked={props.mode === option.mode}
+            disabled={props.disabled}
+            onChange={() => props.onSelect(option.mode)}
+          />
+          <span className="mode-check" aria-hidden="true" />
+          <span className="mode-icon" aria-hidden="true">
+            {option.icon}
+          </span>
+          <span className="mode-copy">
+            <strong>{option.title}</strong>
+            <small>{option.description}</small>
+          </span>
+        </label>
+      ))}
+    </div>
   );
 }
 
@@ -987,6 +1235,25 @@ function parseCandidateSourceLabel(source: string) {
   return "规则";
 }
 
+function organizedPathFor(
+  items: OrganizeExecutionResult["items"],
+  episodeKey: string,
+  kind: "video" | "subtitle",
+  role: "primary" | "secondary" | null,
+) {
+  return (
+    items.find((item) => {
+      if (item.episodeKey !== episodeKey || item.kind !== kind) {
+        return false;
+      }
+      if (item.status === "failed" || item.status === "skipped") {
+        return false;
+      }
+      return role ? item.role === role : true;
+    })?.destination ?? null
+  );
+}
+
 function CandidateRow({ candidate, recommended }: { candidate: SubtitleCandidate; recommended: boolean }) {
   return (
     <div className="candidate-row">
@@ -1005,7 +1272,13 @@ function PlanModal(props: {
   setPlan: (plan: OrganizePlan | null) => void;
   updateCollision: (index: number, action: CollisionAction) => void;
   executePlan: () => void;
+  isExecuting: boolean;
+  progress: OrganizeProgressEvent | null;
+  onMinimize: () => void;
 }) {
+  const progressPercent = props.progress
+    ? Math.round((props.progress.processed / Math.max(props.progress.total, 1)) * 100)
+    : 0;
   return (
     <div className="modal-backdrop">
       <div className="plan-modal">
@@ -1017,10 +1290,33 @@ function PlanModal(props: {
               {props.plan.summary.conflicts} 个
             </p>
           </div>
-          <button className="ghost" onClick={() => props.setPlan(null)}>
-            关闭
-          </button>
+          <div className="modal-header-actions">
+            {props.isExecuting && (
+              <button className="ghost" onClick={props.onMinimize}>
+                <Minimize2 size={15} />
+                缩小
+              </button>
+            )}
+            <button className="ghost" disabled={props.isExecuting} onClick={() => props.setPlan(null)}>
+              关闭
+            </button>
+          </div>
         </div>
+        {props.isExecuting && (
+          <div className="organize-progress-panel" aria-live="polite">
+            <div className="progress-heading">
+              <strong>正在整理文件</strong>
+              <span>
+                {props.progress?.processed ?? 0}/{props.progress?.total ?? props.plan.items.length}
+              </span>
+            </div>
+            <div className="progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progressPercent}>
+              <span style={{ width: `${progressPercent}%` }} />
+            </div>
+            <p>{props.progress?.message ?? "正在准备文件操作。"}</p>
+            {props.progress?.currentDestination && <small title={props.progress.currentDestination}>{props.progress.currentDestination}</small>}
+          </div>
+        )}
         <div className="plan-list">
           {props.plan.items.map((item, index) => (
             <div className="plan-item" key={`${item.source}-${index}`}>
@@ -1032,6 +1328,7 @@ function PlanModal(props: {
               {item.collision ? (
                 <select
                   value={item.collisionAction}
+                  disabled={props.isExecuting}
                   onChange={(event) => props.updateCollision(index, event.target.value as CollisionAction)}
                 >
                   <option value="skip">跳过</option>
@@ -1045,11 +1342,11 @@ function PlanModal(props: {
           ))}
         </div>
         <div className="modal-actions">
-          <button className="secondary" onClick={() => props.setPlan(null)}>
+          <button className="secondary" disabled={props.isExecuting} onClick={() => props.setPlan(null)}>
             取消
           </button>
-          <button className="primary" onClick={props.executePlan}>
-            确认执行
+          <button className="primary" disabled={props.isExecuting} onClick={props.executePlan}>
+            {props.isExecuting ? "执行中..." : "确认执行"}
           </button>
         </div>
       </div>
@@ -1090,15 +1387,26 @@ function formatEpisodeKey(key: EpisodeKey) {
 }
 
 function outputPreview(projectName: string, season: string) {
+  const episodeKey = `${season}E01`;
   return `${projectName} ${season}/
 ├─ videos/
-│  └─ ${projectName} S01E01.mkv
+│  └─ ${projectName} ${episodeKey}.mkv
 ├─ subs/
 │  ├─ zh-Hans/
-│  │  └─ ${projectName} S01E01.zh-Hans.ass
+│  │  └─ ${projectName} ${episodeKey}.zh-Hans.ass
 │  └─ ja/
-│     └─ ${projectName} S01E01.ja.srt
+│     └─ ${projectName} ${episodeKey}.ja.srt
 └─ anime-sub-map.json（自动生成）`;
+}
+
+function projectOutputDir(outputDir: string, projectName: string, season: string) {
+  const folderName = `${projectName} ${season}`;
+  const normalized = outputDir.replace(/[\\/]+$/, "");
+  const tail = normalized.split(/[\\/]/).pop();
+  if (tail?.toLocaleLowerCase() === folderName.toLocaleLowerCase()) {
+    return normalized;
+  }
+  return `${normalized}\\${folderName}`;
 }
 
 
@@ -1211,12 +1519,13 @@ function makeDemoPlan(
   mode: OrganizeMode,
   matches: EpisodeMatch[],
 ): OrganizePlan {
+  const projectRoot = projectOutputDir(outputDir, projectName, season);
   const items = matches.flatMap((item) => {
     const videoItem = item.video
       ? [
           {
             source: item.video.path,
-            destination: `${outputDir}\\videos\\${projectName} ${item.episodeKey}.${item.video.extension}`,
+            destination: `${projectRoot}\\videos\\${projectName} ${item.episodeKey}.${item.video.extension}`,
             kind: "video" as const,
             episodeKey: item.episodeKey,
             language: null,
@@ -1230,7 +1539,7 @@ function makeDemoPlan(
       : [];
     const subItems = item.candidates.slice(0, 2).map((candidate) => ({
       source: candidate.path,
-      destination: `${outputDir}\\subs\\${candidate.language}\\${projectName} ${item.episodeKey}.${candidate.language}.${candidate.extension}`,
+      destination: `${projectRoot}\\subs\\${candidate.language}\\${projectName} ${item.episodeKey}.${candidate.language}.${candidate.extension}`,
       kind: "subtitle" as const,
       episodeKey: item.episodeKey,
       language: candidate.language,
@@ -1246,11 +1555,11 @@ function makeDemoPlan(
   return {
     projectName,
     season,
-    outputDir,
+    outputDir: projectRoot,
     mode,
     items,
     hasConflicts: false,
-    mapFilePath: `${outputDir}\\anime-sub-map.json`,
+    mapFilePath: `${projectRoot}\\anime-sub-map.json`,
     mapFileExists: false,
     summary: {
       videos: matches.filter((item) => item.video).length,
@@ -1262,13 +1571,19 @@ function makeDemoPlan(
 }
 
 function makePreviewLibraryEntry(request: SaveLocalLibraryRequest): LocalAnimeLibraryEntry {
+  const now = Math.floor(Date.now() / 1000);
   return {
+    id: `${request.projectName}-${request.season}-${request.outputDir}`.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
     projectName: request.projectName,
     season: request.season,
     outputDir: request.outputDir,
     mode: request.mode,
     episodeCount: request.episodes.length,
+    subtitlePreferenceSnapshot: request.subtitlePreferenceSnapshot,
+    coverStrategySnapshot: request.coverStrategySnapshot,
     episodes: request.episodes,
-    organizedAtUnix: Math.floor(Date.now() / 1000),
+    createdAtUnix: now,
+    updatedAtUnix: now,
+    organizedAtUnix: now,
   };
 }

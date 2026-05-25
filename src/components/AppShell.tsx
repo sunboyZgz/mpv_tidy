@@ -15,6 +15,7 @@ export function AppShell(props: {
   activeNav: AppPage;
   setActiveNav: Dispatch<SetStateAction<AppPage>>;
   toast: string | null;
+  taskDock?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -47,6 +48,7 @@ export function AppShell(props: {
       </aside>
 
       {props.children}
+      {props.taskDock}
       {props.toast && <div className="toast">{props.toast}</div>}
     </div>
   );
