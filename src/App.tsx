@@ -2,6 +2,7 @@ import { useState } from "react";
 import { AppShell, type AppPage } from "./components/AppShell";
 import { LocalAnimePage } from "./features/localAnime/LocalAnimePage";
 import { ProjectHomePage } from "./features/projectHome/ProjectHomePage";
+import { SettingsPage } from "./features/settings/SettingsPage";
 import type { LocalAnimeLibraryEntry } from "./types";
 
 function App() {
@@ -19,7 +20,7 @@ function App() {
       {activeNav === "home" && <ProjectHomePage showToast={showToast} onLibraryEntrySaved={setSavedLibraryEntry} />}
       {activeNav === "library" && <LocalAnimePage showToast={showToast} syncedEntry={savedLibraryEntry} />}
       {activeNav === "history" && <PlaceholderPage title="整理记录" />}
-      {activeNav === "settings" && <PlaceholderPage title="设置" />}
+      {activeNav === "settings" && <SettingsPage showToast={showToast} />}
     </AppShell>
   );
 }

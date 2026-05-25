@@ -23,6 +23,7 @@ export function AppShell(props: {
         <div className="brand">
           <img src={asset("images/app_logo.png")} alt="" />
           <h1>Anime Subtitle Manager</h1>
+          <p>mpv_tidy</p>
         </div>
         <nav className="side-nav">
           {navItems.map((item) => {
@@ -32,6 +33,7 @@ export function AppShell(props: {
                 className={props.activeNav === item.id ? "active" : ""}
                 key={item.id}
                 onClick={() => props.setActiveNav(item.id)}
+                aria-current={props.activeNav === item.id ? "page" : undefined}
               >
                 <Icon size={21} />
                 <span>{item.label}</span>

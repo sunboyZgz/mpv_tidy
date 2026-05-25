@@ -26,6 +26,11 @@ export async function selectDirectory() {
   return typeof selected === "string" ? selected : null;
 }
 
+export async function selectFile() {
+  const selected = await open({ directory: false, multiple: false });
+  return typeof selected === "string" ? selected : null;
+}
+
 export async function selectDirectories() {
   const selected = await open({ directory: true, multiple: true });
   if (!selected) {
