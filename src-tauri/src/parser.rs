@@ -93,25 +93,10 @@ struct TemplatePattern {
 }
 
 pub fn parse_episode(path: &Path) -> Option<ParsedEpisode> {
-    let text = searchable_path_text(path);
-    let mut notes = Vec::new();
-    let candidates = regex_episode_candidates(&text);
-    if candidates.is_empty() {
-        notes.push("未命中单文件强规则。".to_owned());
-    }
-    decide_episode(candidates, notes).parsed
+    parse_episode_decision(path).parsed
 }
 
 pub fn parse_episode_decision(path: &Path) -> ParseDecision {
-    if let Some(parsed) = parse_episode(path) {
-        return ParseDecision {
-            status: parsed.status,
-            notes: parsed.notes.clone(),
-            candidates: parsed.candidates.clone(),
-            parsed: Some(parsed),
-        };
-    }
-
     let text = searchable_path_text(path);
     let mut notes = Vec::new();
     let candidates = regex_episode_candidates(&text);
@@ -131,7 +116,19 @@ pub fn parse_episode_batch_with_crf(
 ) -> Vec<ParseDecision> {
     let mut parsed = paths
         .iter()
-        .map(|path| parse_episode_decision(path))
+        .map(|path| {
+            if paths.len() == 1 {
+                if let Some(parsed) = parse_episode(path) {
+                    return ParseDecision {
+                        status: parsed.status,
+                        notes: parsed.notes.clone(),
+                        candidates: parsed.candidates.clone(),
+                        parsed: Some(parsed),
+                    };
+                }
+            }
+            parse_episode_decision(path)
+        })
         .collect::<Vec<_>>();
 
     let mut cohorts: BTreeMap<String, Vec<usize>> = BTreeMap::new();
@@ -146,12 +143,13 @@ pub fn parse_episode_batch_with_crf(
 
         let cohort_paths = indexes
             .iter()
-            .map(|index| CohortPath {
-                sequence: TokenSequence {
-                    tokens: tokenize_file_stem(&paths[*index]),
-                },
-                season: parse_season(&searchable_path_text(&paths[*index])).unwrap_or(1),
-                special: is_special_file(&tokenize_file_stem(&paths[*index])),
+            .map(|index| {
+                let tokens = tokenize_file_stem(&paths[*index]);
+                CohortPath {
+                    season: parse_season(&searchable_path_text(&paths[*index])).unwrap_or(1),
+                    special: is_special_file(&tokens),
+                    sequence: TokenSequence { tokens },
+                }
             })
             .collect::<Vec<_>>();
 
@@ -260,7 +258,8 @@ fn apply_crf_tagger(paths: &[PathBuf], decisions: &mut [ParseDecision], tagger: 
                     && prediction.score >= tagger.min_episode_score()
                     && prediction.margin >= tagger.min_episode_margin()
                     && features
-                        .get(prediction.index)
+                        .iter()
+                        .find(|feature| feature.index == prediction.index)
                         .and_then(|feature| feature.number_value)
                         .is_some_and(is_plausible_episode_u32)
             })
@@ -279,7 +278,10 @@ fn apply_crf_tagger(paths: &[PathBuf], decisions: &mut [ParseDecision], tagger: 
         }
 
         let prediction = episode_predictions[0];
-        let Some(feature) = features.get(prediction.index) else {
+        let Some(feature) = features
+            .iter()
+            .find(|feature| feature.index == prediction.index)
+        else {
             continue;
         };
         let Some(number_value) = feature.number_value else {
@@ -1141,7 +1143,7 @@ fn compound_kind_for_token(tokens: &[Token], index: usize) -> Option<TokenCompou
         Some(TokenCompoundKind::SxxExx)
     } else if is_versioned_episode_compound_token(tokens, index) {
         Some(TokenCompoundKind::VersionedEpisode)
-    } else if is_hash_number(tokens, index) || is_hex_hash_run_token(tokens, index) {
+    } else if is_hash_number(tokens, index) {
         Some(TokenCompoundKind::Hash)
     } else if is_resolution_compound_token(tokens, index) {
         Some(TokenCompoundKind::Resolution)
