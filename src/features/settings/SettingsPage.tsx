@@ -135,7 +135,7 @@ export function SettingsPage({ showToast }: { showToast: (message: string) => vo
       return;
     }
 
-    const selected = type === "mpvExecutablePath" ? await browseFile() : await browseDirectory();
+    const selected = type === "mpvExecutablePath" ? await selectFile() : await selectDirectory();
     if (selected) {
       updateSetting(type, selected);
     }
@@ -569,12 +569,4 @@ function SummaryItem({ label, tone, value }: { label: string; value: string; ton
 
 function languageLabel(value: SubtitleLanguage) {
   return languageOptions.find((option) => option.value === value)?.summary ?? value;
-}
-
-async function browseFile() {
-  return selectFile();
-}
-
-async function browseDirectory() {
-  return selectDirectory();
 }
