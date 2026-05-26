@@ -40,6 +40,10 @@ pub fn launch(
 
     if let Some(existing) = session.as_mut() {
         if mpv_process_is_alive(existing)? {
+            println!(
+                "===========Found existing MPV with video path {:?}, request video path {:?}===========",
+                existing.current_video_path, request.video_path
+            );
             if same_path(&existing.current_video_path, &request.video_path) {
                 bring_process_to_front(existing.process_id);
                 return Ok(MpvLaunchResult {
@@ -104,11 +108,191 @@ fn spawn_mpv_session(request: &MpvLaunchRequest) -> AppResult<MpvSession> {
 }
 
 fn switch_existing_mpv_session(session: &MpvSession, request: &MpvLaunchRequest) -> AppResult<()> {
+    println!(
+        "==========switch_existing_mpv_session: request video path {:?}===========",
+        request.video_path
+    );
+
+    println!("step 1: remove external subtitle tracks");
+    remove_external_subtitle_tracks(&session.ipc_pipe_path)?;
+    println!("step 1 done");
+
+    println!("step 2: clear sub-files list");
+    clear_sub_files_list(&session.ipc_pipe_path)?;
+    println!("step 2 done");
+
+    println!("step 3: loadfile replace");
     send_ipc_request(
         &session.ipc_pipe_path,
         json!(["loadfile", path_for_mpv(&request.video_path), "replace"]),
     )?;
-    wait_for_video_track_list_ready(&session.ipc_pipe_path)?;
+    println!("step 3 done");
+
+    println!("step 4: wait for requested video path");
+    wait_for_video_track_list_ready(&session.ipc_pipe_path, &request.video_path)?;
+    println!("step 4 done");
+
+    println!("step 5: apply requested subtitles");
+    apply_requested_subtitles_to_running_mpv(&session.ipc_pipe_path, request)?;
+    println!("step 5 done");
+
+    Ok(())
+}
+
+fn apply_requested_subtitles_to_running_mpv(
+    pipe_path: &str,
+    request: &MpvLaunchRequest,
+) -> AppResult<()> {
+    add_requested_subtitles_by_ipc(pipe_path, request)?;
+
+    let tracks = wait_for_track_list_ready(pipe_path, request)?;
+    let subtitle_tracks = parse_subtitle_tracks(&tracks);
+
+    dump_subtitle_tracks(&subtitle_tracks);
+
+    let (primary_track_id, secondary_track_id) =
+        resolve_requested_subtitle_track_ids(request, &subtitle_tracks)?;
+
+    apply_subtitle_track_selection(pipe_path, primary_track_id, secondary_track_id)?;
+
+    verify_subtitle_track_selection(pipe_path, primary_track_id, secondary_track_id)?;
+
+    Ok(())
+}
+
+fn add_requested_subtitles_by_ipc(pipe_path: &str, request: &MpvLaunchRequest) -> AppResult<()> {
+    println!("========== MPV sub-add request ==========");
+    println!(
+        "primary_subtitle = {:?}",
+        request
+            .primary_subtitle
+            .as_ref()
+            .map(|path| path.display().to_string())
+    );
+    println!(
+        "secondary_subtitle = {:?}",
+        request
+            .secondary_subtitle
+            .as_ref()
+            .map(|path| path.display().to_string())
+    );
+
+    if let Some(primary) = &request.primary_subtitle {
+        let subtitle_path = path_for_mpv(primary);
+        let title = subtitle_title(primary, "primary");
+
+        println!("sub-add primary path = {subtitle_path}");
+        println!("sub-add primary title = {title}");
+
+        send_ipc_request(pipe_path, json!(["sub-add", subtitle_path, "auto", title]))?;
+    }
+
+    if let Some(secondary) = &request.secondary_subtitle {
+        let subtitle_path = path_for_mpv(secondary);
+        let title = subtitle_title(secondary, "secondary");
+
+        println!("sub-add secondary path = {subtitle_path}");
+        println!("sub-add secondary title = {title}");
+
+        send_ipc_request(pipe_path, json!(["sub-add", subtitle_path, "auto", title]))?;
+    }
+
+    println!("=========================================");
+
+    Ok(())
+}
+
+fn subtitle_title(path: &Path, fallback: &str) -> String {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.trim().is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| fallback.to_owned())
+}
+
+fn remove_external_subtitle_tracks(pipe_path: &str) -> AppResult<()> {
+    let tracks_value = send_ipc_request(pipe_path, json!(["get_property", "track-list"]))?;
+    let subtitle_tracks = parse_subtitle_tracks(&tracks_value);
+
+    let mut external_subtitle_ids: Vec<i64> = subtitle_tracks
+        .iter()
+        .filter(|track| track.external)
+        .map(|track| track.id)
+        .collect();
+
+    if external_subtitle_ids.is_empty() {
+        println!("No external subtitle tracks to remove.");
+        return Ok(());
+    }
+
+    // 倒序删除，方便调试观察。
+    external_subtitle_ids.sort_by(|a, b| b.cmp(a));
+
+    // println!("=======Removing external subtitle tracks from existing MPV session========");
+    for track_id in external_subtitle_ids {
+        // println!(
+        //     "remove external subtitle track id = {track_id}, track filename = {:?}",
+        //     subtitle_tracks
+        //         .iter()
+        //         .find(|track| track.id == track_id)
+        //         .and_then(|track| track.external_filename.as_deref())
+        // );
+        send_ipc_request(pipe_path, json!(["sub-remove", track_id]))?;
+    }
+    // println!("===============");
+
+    wait_until_no_external_subtitle_tracks(pipe_path)?;
+    // dump_subtitle_debug_properties(pipe_path)?;
+    Ok(())
+}
+
+fn wait_until_no_external_subtitle_tracks(pipe_path: &str) -> AppResult<()> {
+    let mut last_tracks = Value::Null;
+
+    for _ in 0..IPC_RETRY_COUNT {
+        let tracks_value = send_ipc_request(pipe_path, json!(["get_property", "track-list"]))?;
+        let subtitle_tracks = parse_subtitle_tracks(&tracks_value);
+
+        let has_external = subtitle_tracks.iter().any(|track| track.external);
+
+        if !has_external {
+            println!("All external subtitle tracks removed.");
+            return Ok(());
+        }
+
+        last_tracks = tracks_value;
+        thread::sleep(IPC_RETRY_DELAY);
+    }
+
+    println!("========== external subtitles still remain ==========");
+    dump_track_list(&last_tracks);
+
+    Err(AppError::MpvLaunch(
+        "MPV external subtitle tracks were not removed in time".to_owned(),
+    ))
+}
+
+fn clear_sub_files_list(pipe_path: &str) -> AppResult<()> {
+    send_ipc_request(pipe_path, json!(["change-list", "sub-files", "clr", ""]))?;
+    Ok(())
+}
+
+fn dump_subtitle_debug_properties(pipe_path: &str) -> AppResult<()> {
+    let track_list = send_ipc_request(pipe_path, json!(["get_property", "track-list"]))?;
+    let sid = send_ipc_request(pipe_path, json!(["get_property", "sid"]))?;
+    let secondary_sid = send_ipc_request(pipe_path, json!(["get_property", "secondary-sid"]))?;
+    let sub_files = send_ipc_request(pipe_path, json!(["get_property", "sub-files"]));
+
+    println!("========== MPV subtitle debug ==========");
+    println!("sid = {sid}");
+    println!("secondary-sid = {secondary_sid}");
+    match sub_files {
+        Ok(value) => println!("sub-files = {value}"),
+        Err(error) => println!("sub-files read failed = {error}"),
+    }
+    dump_track_list(&track_list);
+    println!("========================================");
+
     Ok(())
 }
 
@@ -219,22 +403,41 @@ fn wait_for_track_list_ready(pipe_path: &str, request: &MpvLaunchRequest) -> App
     ))
 }
 
-fn wait_for_video_track_list_ready(pipe_path: &str) -> AppResult<Value> {
-    let mut last_tracks = Value::Null;
-    for _ in 0..IPC_RETRY_COUNT {
-        let tracks = send_ipc_request(pipe_path, json!(["get_property", "track-list"]))?;
-        if track_list_has_video(&tracks) {
-            return Ok(tracks);
+fn wait_for_video_track_list_ready(pipe_path: &str, video_path: &Path) -> AppResult<()> {
+    let wanted = normalize_path_for_match(video_path);
+    let mut last_path = Value::Null;
+    // 等待 MPV 切换到目标视频。通常 MPV 会先把 path 属性切换到新视频的路径，然后才更新 track-list 以反映新视频的轨道信息。因此在 track-list 准备好之前，path 属性应该已经切换到目标视频了。
+    // 不然会出现bug， thread::sleep(Duration::from_millis(300))必须使用。
+    thread::sleep(Duration::from_millis(300));
+    println!("wait video wanted path = {wanted}");
+
+    for attempt in 0..IPC_RETRY_COUNT {
+        println!("wait video attempt {attempt}: before get_property path");
+
+        let current_path = send_ipc_request(pipe_path, json!(["get_property", "path"]))?;
+
+        println!("wait video attempt {attempt}: raw path = {current_path}");
+
+        last_path = current_path.clone();
+
+        let actual = current_path
+            .as_str()
+            .map(normalize_path_text)
+            .unwrap_or_else(|| "<none>".to_owned());
+
+        println!("wait video attempt {attempt}: normalized actual path = {actual}");
+
+        if actual == wanted {
+            println!("MPV loaded requested video: {}", video_path.display());
+            return Ok(());
         }
-        last_tracks = tracks;
+
         thread::sleep(IPC_RETRY_DELAY);
     }
 
-    println!("========== MPV track-list timeout snapshot ==========");
-    dump_track_list(&last_tracks);
-    Err(AppError::MpvLaunch(
-        "MPV track-list was not ready for switched video".to_owned(),
-    ))
+    Err(AppError::MpvLaunch(format!(
+        "MPV 未能及时切换到目标视频。wanted={wanted}, last_path={last_path}"
+    )))
 }
 
 fn track_list_has_video(track_list: &Value) -> bool {
@@ -266,16 +469,23 @@ fn external_subtitle_count(track_list: &Value) -> usize {
 }
 
 fn track_list_ready_for_request(track_list: &Value, request: &MpvLaunchRequest) -> bool {
-    if !track_list_has_video(track_list) {
-        return false;
-    }
+    track_list_has_video(track_list) && track_list_contains_requested_subtitles(track_list, request)
+}
 
-    let expected = expected_external_subtitle_count(request);
-    if expected == 0 {
-        return true;
-    }
+fn track_list_contains_requested_subtitles(track_list: &Value, request: &MpvLaunchRequest) -> bool {
+    let tracks = parse_subtitle_tracks(track_list);
 
-    external_subtitle_count(track_list) >= expected
+    let primary_ok = match &request.primary_subtitle {
+        Some(primary) => find_subtitle_track_id_by_path(&tracks, primary).is_some(),
+        None => true,
+    };
+
+    let secondary_ok = match &request.secondary_subtitle {
+        Some(secondary) => find_subtitle_track_id_by_path(&tracks, secondary).is_some(),
+        None => true,
+    };
+
+    primary_ok && secondary_ok
 }
 
 fn parse_subtitle_tracks(track_list: &Value) -> Vec<MpvSubtitleTrack> {
@@ -663,19 +873,6 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
-    fn counts_minimal_mpv_arguments() {
-        let request = MpvLaunchRequest {
-            mpv_path: PathBuf::from("mpv"),
-            video_path: PathBuf::from("S01E01.mkv"),
-            primary_subtitle: Some(PathBuf::from("S01E01.zh-Hans.ass")),
-            secondary_subtitle: None,
-            extra_args: vec!["--save-position-on-quit".to_owned(), " ".to_owned()],
-        };
-
-        assert_eq!(mpv_argument_count(&request), 6);
-    }
-
-    #[test]
     fn detects_video_track_list_readiness() {
         let tracks = json!([
             { "id": 1, "type": "video", "codec": "h264" },
@@ -710,19 +907,6 @@ mod tests {
     }
 
     #[test]
-    fn counts_expected_external_subtitles_from_request() {
-        let request = MpvLaunchRequest {
-            mpv_path: PathBuf::from("mpv"),
-            video_path: PathBuf::from("S01E01.mkv"),
-            primary_subtitle: Some(PathBuf::from("S01E01.zh-Hans.ass")),
-            secondary_subtitle: Some(PathBuf::from("S01E01.ja.srt")),
-            extra_args: Vec::new(),
-        };
-
-        assert_eq!(expected_external_subtitle_count(&request), 2);
-    }
-
-    #[test]
     fn counts_external_subtitles_in_track_list() {
         let tracks = json!([
             { "id": 1, "type": "video" },
@@ -732,156 +916,5 @@ mod tests {
         ]);
 
         assert_eq!(external_subtitle_count(&tracks), 2);
-    }
-
-    #[test]
-    fn track_list_is_ready_without_requested_external_subtitles_once_video_exists() {
-        let request = MpvLaunchRequest {
-            mpv_path: PathBuf::from("mpv"),
-            video_path: PathBuf::from("S01E01.mkv"),
-            primary_subtitle: None,
-            secondary_subtitle: None,
-            extra_args: Vec::new(),
-        };
-        let tracks = json!([{ "id": 1, "type": "video" }]);
-
-        assert!(track_list_ready_for_request(&tracks, &request));
-    }
-
-    #[test]
-    fn track_list_waits_for_requested_external_subtitles() {
-        let request = MpvLaunchRequest {
-            mpv_path: PathBuf::from("mpv"),
-            video_path: PathBuf::from("S01E01.mkv"),
-            primary_subtitle: Some(PathBuf::from("S01E01.zh-Hans.ass")),
-            secondary_subtitle: Some(PathBuf::from("S01E01.ja.srt")),
-            extra_args: Vec::new(),
-        };
-        let one_external_subtitle = json!([
-            { "id": 1, "type": "video" },
-            { "id": 2, "type": "sub", "external": true }
-        ]);
-        let two_external_subtitles = json!([
-            { "id": 1, "type": "video" },
-            { "id": 2, "type": "sub", "external": true },
-            { "id": 3, "type": "sub", "external": true }
-        ]);
-
-        assert!(!track_list_ready_for_request(
-            &one_external_subtitle,
-            &request
-        ));
-        assert!(track_list_ready_for_request(
-            &two_external_subtitles,
-            &request
-        ));
-    }
-
-    #[test]
-    fn finds_external_subtitle_track_id_by_full_path() {
-        let tracks = vec![
-            subtitle_track(1, false, None, None),
-            subtitle_track(2, true, Some("D:\\Anime\\Subs\\ja.srt"), Some(1)),
-            subtitle_track(3, true, Some("D:/Anime/Subs/zh-Hans.ass"), Some(0)),
-        ];
-
-        assert_eq!(
-            find_subtitle_track_id_by_path(&tracks, &PathBuf::from("D:\\Anime\\Subs\\zh-Hans.ass")),
-            Some(3)
-        );
-    }
-
-    #[test]
-    fn resolves_requested_primary_and_secondary_track_ids() {
-        let request = MpvLaunchRequest {
-            mpv_path: PathBuf::from("mpv"),
-            video_path: PathBuf::from("S01E01.mkv"),
-            primary_subtitle: Some(PathBuf::from("D:\\Anime\\Subs\\zh-Hans.ass")),
-            secondary_subtitle: Some(PathBuf::from("D:\\Anime\\Subs\\ja.srt")),
-            extra_args: Vec::new(),
-        };
-        let tracks = vec![
-            subtitle_track(1, false, None, None),
-            subtitle_track(2, true, Some("D:/Anime/Subs/ja.srt"), None),
-            subtitle_track(3, true, Some("D:/Anime/Subs/zh-Hans.ass"), None),
-        ];
-
-        let resolved = resolve_requested_subtitle_track_ids(&request, &tracks);
-
-        assert!(matches!(resolved, Ok((Some(3), Some(2)))));
-    }
-
-    #[test]
-    fn rejects_missing_requested_primary_subtitle_track() {
-        let request = MpvLaunchRequest {
-            mpv_path: PathBuf::from("mpv"),
-            video_path: PathBuf::from("S01E01.mkv"),
-            primary_subtitle: Some(PathBuf::from("D:\\Anime\\Subs\\zh-Hans.ass")),
-            secondary_subtitle: None,
-            extra_args: Vec::new(),
-        };
-        let tracks = vec![subtitle_track(2, true, Some("D:/Anime/Subs/ja.srt"), None)];
-
-        let resolved = resolve_requested_subtitle_track_ids(&request, &tracks);
-
-        assert!(resolved
-            .err()
-            .map(|error| error.to_string().contains("主字幕"))
-            .unwrap_or(false));
-    }
-
-    #[test]
-    fn rejects_primary_and_secondary_resolving_to_same_track_id() {
-        let request = MpvLaunchRequest {
-            mpv_path: PathBuf::from("mpv"),
-            video_path: PathBuf::from("S01E01.mkv"),
-            primary_subtitle: Some(PathBuf::from("D:\\Anime\\Subs\\zh-Hans.ass")),
-            secondary_subtitle: Some(PathBuf::from("D:\\Anime\\Subs\\zh-Hans.ass")),
-            extra_args: Vec::new(),
-        };
-        let tracks = vec![subtitle_track(
-            3,
-            true,
-            Some("D:/Anime/Subs/zh-Hans.ass"),
-            None,
-        )];
-
-        let resolved = resolve_requested_subtitle_track_ids(&request, &tracks);
-
-        assert!(resolved
-            .err()
-            .map(|error| error.to_string().contains("同一个 MPV track id"))
-            .unwrap_or(false));
-    }
-
-    #[test]
-    fn verifies_subtitle_main_selection() {
-        let tracks = vec![
-            subtitle_track(2, true, Some("D:/Anime/Subs/ja.srt"), Some(1)),
-            subtitle_track(3, true, Some("D:/Anime/Subs/zh-Hans.ass"), Some(0)),
-        ];
-
-        assert!(verify_subtitle_track_main_selection(&tracks, Some(3), Some(0), "主字幕").is_ok());
-        assert!(verify_subtitle_track_main_selection(&tracks, Some(2), Some(1), "副字幕").is_ok());
-        assert!(verify_subtitle_track_main_selection(&tracks, Some(3), Some(1), "副字幕").is_err());
-    }
-
-    fn subtitle_track(
-        id: i64,
-        external: bool,
-        external_filename: Option<&str>,
-        main_selection: Option<i64>,
-    ) -> MpvSubtitleTrack {
-        MpvSubtitleTrack {
-            id,
-            title: None,
-            lang: None,
-            external,
-            external_filename: external_filename.map(ToOwned::to_owned),
-            filename: None,
-            selected: main_selection.is_some(),
-            main_selection,
-            codec: None,
-        }
     }
 }

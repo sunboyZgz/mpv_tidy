@@ -1,0 +1,58 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug Tauri App",
+      "type": "lldb",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "cargo": {
+        "args": [
+          "build",
+          "--manifest-path",
+          "${workspaceFolder}/src-tauri/Cargo.toml",
+          "--bin",
+          "mpv-tidy"
+        ],
+        "filter": {
+          "name": "mpv-tidy",
+          "kind": "bin"
+        }
+      },
+      "program": "${cargo:program}",
+      "args": [],
+      "env": {
+        "RUST_BACKTRACE": "1",
+        "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS": "--remote-debugging-port=9222"
+      },
+      "preLaunchTask": "frontend: dev",
+      "sourceLanguages": ["rust"]
+    },
+    {
+      "name": "Debug Tauri App (production frontend)",
+      "type": "lldb",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "cargo": {
+        "args": [
+          "build",
+          "--manifest-path",
+          "${workspaceFolder}/src-tauri/Cargo.toml",
+          "--bin",
+          "mpv-tidy"
+        ],
+        "filter": {
+          "name": "mpv-tidy",
+          "kind": "bin"
+        }
+      },
+      "program": "${cargo:program}",
+      "args": [],
+      "env": {
+        "RUST_BACKTRACE": "1"
+      },
+      "preLaunchTask": "frontend: build",
+      "sourceLanguages": ["rust"]
+    }
+  ]
+}

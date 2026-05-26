@@ -21,6 +21,8 @@ export interface MpvLaunchRequest {
   videoPath: string;
   primarySubtitle: string | null;
   secondarySubtitle: string | null;
+  primarySubtitleDelaySeconds: number | null;
+  secondarySubtitleDelaySeconds: number | null;
   extraArgs: string[];
 }
 

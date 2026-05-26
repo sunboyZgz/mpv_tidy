@@ -468,6 +468,8 @@ pub struct MpvLaunchRequest {
     pub video_path: PathBuf,
     pub primary_subtitle: Option<PathBuf>,
     pub secondary_subtitle: Option<PathBuf>,
+    pub primary_subtitle_delay_seconds: Option<f64>,
+    pub secondary_subtitle_delay_seconds: Option<f64>,
     pub extra_args: Vec<String>,
 }
 

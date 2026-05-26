@@ -361,12 +361,6 @@ export function LocalAnimePage({
     setIsLaunching(true);
     const extraArgs: string[] = [];
     extraArgs.push(appSettings.rememberPlaybackProgress ? "--save-position-on-quit" : "--no-resume-playback");
-    if (primaryOffset !== 0) {
-      extraArgs.push(`--sub-delay=${primaryOffset.toFixed(1)}`);
-    }
-    if (secondaryOffset !== 0) {
-      setPanelMessage("副字幕偏移已保存；当前安全 MPV 参数策略仅应用主字幕偏移。");
-    }
 
     if (!isTauriRuntime()) {
       window.setTimeout(() => {
@@ -384,6 +378,8 @@ export function LocalAnimePage({
         videoPath: selectedEpisode.videoPath,
         primarySubtitle: selectedPrimarySubtitle?.path ?? null,
         secondarySubtitle: selectedSecondarySubtitle?.path ?? null,
+        primarySubtitleDelaySeconds: primaryOffset,
+        secondarySubtitleDelaySeconds: secondaryOffset,
         extraArgs,
       });
       markEpisodeWatched(selectedEpisode.id, "partial");
