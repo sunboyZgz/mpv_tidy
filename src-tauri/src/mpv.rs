@@ -3,9 +3,10 @@ use crate::error::{AppError, AppResult};
 use serde_json::{json, Value};
 use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
-use std::process::Command;
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command};
 use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -16,39 +17,107 @@ const IPC_CONNECT_RETRY_COUNT: usize = 40;
 const IPC_CONNECT_RETRY_DELAY: Duration = Duration::from_millis(50);
 
 #[derive(Default)]
-pub struct MpvController;
+pub struct MpvController {
+    session: Mutex<Option<MpvSession>>,
+}
+
+struct MpvSession {
+    child: Child,
+    process_id: u32,
+    ipc_pipe_path: String,
+    current_video_path: PathBuf,
+}
 
 pub fn launch(
-    _controller: &tauri::State<'_, MpvController>,
+    controller: &tauri::State<'_, MpvController>,
     request: MpvLaunchRequest,
 ) -> AppResult<MpvLaunchResult> {
     validate_launch_request(&request)?;
+    let mut session = controller
+        .session
+        .lock()
+        .map_err(|_| AppError::MpvLaunch("MPV 状态锁定失败".to_owned()))?;
 
+    if let Some(existing) = session.as_mut() {
+        if mpv_process_is_alive(existing)? {
+            if same_path(&existing.current_video_path, &request.video_path) {
+                bring_process_to_front(existing.process_id);
+                return Ok(MpvLaunchResult {
+                    process_id: existing.process_id,
+                    argument_count: 0,
+                    reused_existing: true,
+                    switched_video: false,
+                });
+            }
+
+            switch_existing_mpv_session(existing, &request)?;
+            existing.current_video_path = request.video_path.to_path_buf();
+            bring_process_to_front(existing.process_id);
+            return Ok(MpvLaunchResult {
+                process_id: existing.process_id,
+                argument_count: 0,
+                reused_existing: true,
+                switched_video: true,
+            });
+        }
+
+        *session = None;
+    }
+
+    let next_session = spawn_mpv_session(&request)?;
+    let result = MpvLaunchResult {
+        process_id: next_session.process_id,
+        argument_count: mpv_argument_count(&request),
+        reused_existing: false,
+        switched_video: false,
+    };
+    *session = Some(next_session);
+    Ok(result)
+}
+
+fn spawn_mpv_session(request: &MpvLaunchRequest) -> AppResult<MpvSession> {
     let ipc_pipe_path = next_ipc_pipe_path();
     let mut command = Command::new(&request.mpv_path);
-    append_launch_args(&mut command, &request, &ipc_pipe_path);
+    append_launch_args(&mut command, request, &ipc_pipe_path);
 
     let child = command
         .spawn()
         .map_err(|error| AppError::MpvLaunch(error.to_string()))?;
     let process_id = child.id();
 
-    let tracks = wait_for_track_list_ready(&ipc_pipe_path, &request)?;
+    let tracks = wait_for_track_list_ready(&ipc_pipe_path, request)?;
     let subtitle_tracks = parse_subtitle_tracks(&tracks);
     dump_subtitle_tracks(&subtitle_tracks);
 
     let (primary_track_id, secondary_track_id) =
-        resolve_requested_subtitle_track_ids(&request, &subtitle_tracks)?;
+        resolve_requested_subtitle_track_ids(request, &subtitle_tracks)?;
 
     apply_subtitle_track_selection(&ipc_pipe_path, primary_track_id, secondary_track_id)?;
     verify_subtitle_track_selection(&ipc_pipe_path, primary_track_id, secondary_track_id)?;
 
-    Ok(MpvLaunchResult {
+    Ok(MpvSession {
+        child,
         process_id,
-        argument_count: mpv_argument_count(&request),
-        reused_existing: false,
-        switched_video: false,
+        ipc_pipe_path,
+        current_video_path: request.video_path.to_path_buf(),
     })
+}
+
+fn switch_existing_mpv_session(session: &MpvSession, request: &MpvLaunchRequest) -> AppResult<()> {
+    send_ipc_request(
+        &session.ipc_pipe_path,
+        json!(["loadfile", path_for_mpv(&request.video_path), "replace"]),
+    )?;
+    wait_for_video_track_list_ready(&session.ipc_pipe_path)?;
+    Ok(())
+}
+
+fn mpv_process_is_alive(session: &mut MpvSession) -> AppResult<bool> {
+    session
+        .child
+        .try_wait()
+        .map(|status| status.is_none())
+        .map_err(Into::into)
 }
 
 pub fn reveal(path: &Path) -> AppResult<()> {
@@ -147,6 +216,24 @@ fn wait_for_track_list_ready(pipe_path: &str, request: &MpvLaunchRequest) -> App
 
     Err(AppError::MpvLaunch(
         "MPV track-list was not ready for requested external subtitles".to_owned(),
+    ))
+}
+
+fn wait_for_video_track_list_ready(pipe_path: &str) -> AppResult<Value> {
+    let mut last_tracks = Value::Null;
+    for _ in 0..IPC_RETRY_COUNT {
+        let tracks = send_ipc_request(pipe_path, json!(["get_property", "track-list"]))?;
+        if track_list_has_video(&tracks) {
+            return Ok(tracks);
+        }
+        last_tracks = tracks;
+        thread::sleep(IPC_RETRY_DELAY);
+    }
+
+    println!("========== MPV track-list timeout snapshot ==========");
+    dump_track_list(&last_tracks);
+    Err(AppError::MpvLaunch(
+        "MPV track-list was not ready for switched video".to_owned(),
     ))
 }
 
@@ -477,6 +564,17 @@ fn now_unix() -> u64 {
         .unwrap_or(0)
 }
 
+fn path_for_mpv(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+fn same_path(left: &Path, right: &Path) -> bool {
+    match (left.canonicalize(), right.canonicalize()) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => left == right,
+    }
+}
+
 fn mpv_argument_count(request: &MpvLaunchRequest) -> usize {
     let subtitle_count = usize::from(request.primary_subtitle.is_some())
         + usize::from(request.secondary_subtitle.is_some());
@@ -487,6 +585,70 @@ fn mpv_argument_count(request: &MpvLaunchRequest) -> usize {
             .filter(|arg| !arg.trim().is_empty())
             .count()
 }
+
+#[cfg(windows)]
+fn bring_process_to_front(process_id: u32) {
+    if let Some(hwnd) = find_window_for_process(process_id) {
+        // SAFETY: hwnd is obtained from EnumWindows for the target process and is only used
+        // with Windows window-management APIs that require raw handles.
+        unsafe {
+            windows_sys::Win32::UI::WindowsAndMessaging::ShowWindow(
+                hwnd,
+                windows_sys::Win32::UI::WindowsAndMessaging::SW_RESTORE,
+            );
+            windows_sys::Win32::UI::WindowsAndMessaging::SetForegroundWindow(hwnd);
+        }
+    }
+}
+
+#[cfg(windows)]
+fn find_window_for_process(process_id: u32) -> Option<windows_sys::Win32::Foundation::HWND> {
+    use windows_sys::Win32::Foundation::{HWND, LPARAM};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetWindowThreadProcessId, IsWindowVisible,
+    };
+
+    struct Search {
+        process_id: u32,
+        hwnd: HWND,
+    }
+
+    unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> i32 {
+        // SAFETY: lparam is the Search pointer passed to EnumWindows for the duration of the call.
+        let search = unsafe { &mut *(lparam as *mut Search) };
+        let mut window_process_id = 0u32;
+        // SAFETY: hwnd is provided by EnumWindows and the output pointer is valid here.
+        unsafe {
+            GetWindowThreadProcessId(hwnd, &mut window_process_id);
+        }
+        // SAFETY: hwnd is provided by EnumWindows.
+        if window_process_id == search.process_id && unsafe { IsWindowVisible(hwnd) } != 0 {
+            search.hwnd = hwnd;
+            return 0;
+        }
+        1
+    }
+
+    let mut search = Search {
+        process_id,
+        hwnd: std::ptr::null_mut(),
+    };
+    // SAFETY: enum_windows_proc follows the callback contract and lparam points to search.
+    unsafe {
+        EnumWindows(
+            Some(enum_windows_proc),
+            &mut search as *mut Search as LPARAM,
+        );
+    }
+    if search.hwnd.is_null() {
+        None
+    } else {
+        Some(search.hwnd)
+    }
+}
+
+#[cfg(not(windows))]
+fn bring_process_to_front(_process_id: u32) {}
 
 #[cfg(test)]
 mod tests {

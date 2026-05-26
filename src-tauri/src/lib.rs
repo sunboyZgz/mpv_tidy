@@ -14,7 +14,7 @@ mod training;
 pub fn run() -> Result<(), tauri::Error> {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .manage(mpv::MpvController)
+        .manage(mpv::MpvController::default())
         .invoke_handler(tauri::generate_handler![
             commands::scan_and_match,
             commands::build_organize_plan,
