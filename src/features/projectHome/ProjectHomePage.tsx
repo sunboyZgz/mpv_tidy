@@ -137,6 +137,7 @@ export function ProjectHomePage({
   setOrganizeTasks: React.Dispatch<React.SetStateAction<OrganizeTaskUi[]>>;
 }) {
   const [projectName, setProjectName] = useState("Jujutsu Kaisen");
+  const [projectNameEdited, setProjectNameEdited] = useState(false);
   const [season, setSeason] = useState("S01");
   const [videoDir, setVideoDir] = useState<string | null>(null);
   const [subtitleDirs, setSubtitleDirs] = useState<string[]>([]);
@@ -286,6 +287,9 @@ export function ProjectHomePage({
       const selected = await selectDirectory();
       if (selected) {
         setVideoDir(selected);
+        if (!projectNameEdited) {
+          setProjectName(inferProjectNameFromVideoDir(selected));
+        }
         setScanResult(null);
         setScanState("idle");
         setSelectedEpisodeKey(null);
@@ -324,6 +328,18 @@ export function ProjectHomePage({
     } finally {
       setPendingDirectoryAction(null);
     }
+  }
+
+  function clearSubtitleDirs() {
+    if (subtitleDirs.length === 0) {
+      return;
+    }
+    setSubtitleDirs([]);
+    setScanResult(null);
+    setScanState("idle");
+    setSelectedEpisodeKey(null);
+    closeDetailDrawer(null);
+    setMessage("已清空字幕目录。");
   }
 
   async function chooseOutputDir() {
@@ -378,6 +394,9 @@ export function ProjectHomePage({
     try {
       const result = await scanAndMatchCommand({ videoDirs: [videoDir], subtitleDirs });
       const nextEpisodeKey = result.matches[0]?.episodeKey ?? null;
+      if (!projectNameEdited) {
+        setProjectName(inferProjectNameFromScanResult(result) ?? inferProjectNameFromVideoDir(videoDir));
+      }
       setScanResult(result);
       setSelectedEpisodeKey(nextEpisodeKey);
       openDetailDrawer(nextEpisodeKey);
@@ -669,11 +688,30 @@ export function ProjectHomePage({
     });
   }
 
+  function updateAllCollisions(action: CollisionAction) {
+    setPlan((current) => {
+      if (!current) {
+        return current;
+      }
+      return {
+        ...current,
+        items: current.items.map((item) => (item.collision ? { ...item, collisionAction: action } : item)),
+      };
+    });
+  }
+
   return (
     <main className="workspace">
       <header className="topbar">
         <div className="project-title">
-          <input aria-label="项目名称" value={projectName} onChange={(event) => setProjectName(event.target.value)} />
+          <input
+            aria-label="项目名称"
+            value={projectName}
+            onChange={(event) => {
+              setProjectNameEdited(true);
+              setProjectName(event.target.value);
+            }}
+          />
           <input
             aria-label="季"
             className="season-input"
@@ -703,6 +741,7 @@ export function ProjectHomePage({
               dirs={subtitleDirs}
               busy={pendingDirectoryAction === "subtitles"}
               onAdd={addSubtitleDirs}
+              onClear={clearSubtitleDirs}
             />
             <DirectoryCard
               icon="status_folder.svg"
@@ -840,6 +879,7 @@ export function ProjectHomePage({
           plan={plan}
           setPlan={setPlan}
           updateCollision={updateCollision}
+          updateAllCollisions={updateAllCollisions}
           executePlan={executePlan}
           isExecuting={isExecutingPlan}
           progress={organizeProgress}
@@ -923,7 +963,17 @@ function DirectoryCard(props: {
   );
 }
 
-function SubtitleDirectoryCard({ busy = false, dirs, onAdd }: { busy?: boolean; dirs: string[]; onAdd: () => void }) {
+function SubtitleDirectoryCard({
+  busy = false,
+  dirs,
+  onAdd,
+  onClear,
+}: {
+  busy?: boolean;
+  dirs: string[];
+  onAdd: () => void;
+  onClear: () => void;
+}) {
   return (
     <div className="resource-card subtitle-card">
       <img src={asset("icons/status_subtitle_file.svg")} alt="" />
@@ -940,10 +990,15 @@ function SubtitleDirectoryCard({ busy = false, dirs, onAdd }: { busy?: boolean; 
             ))
           )}
         </div>
-        <button className="violet-outline" disabled={busy} onClick={onAdd}>
-          {busy && <Loader2 className="spin" size={15} />}
-          {busy ? "正在打开..." : "添加字幕目录"}
-        </button>
+        <div className="directory-actions">
+          <button className="violet-outline" disabled={busy} onClick={onAdd}>
+            {busy && <Loader2 className="spin" size={15} />}
+            {busy ? "正在打开..." : "添加字幕目录"}
+          </button>
+          <button className="ghost" disabled={busy || dirs.length === 0} onClick={onClear}>
+            清空
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1271,6 +1326,7 @@ function PlanModal(props: {
   plan: OrganizePlan;
   setPlan: (plan: OrganizePlan | null) => void;
   updateCollision: (index: number, action: CollisionAction) => void;
+  updateAllCollisions: (action: CollisionAction) => void;
   executePlan: () => void;
   isExecuting: boolean;
   progress: OrganizeProgressEvent | null;
@@ -1291,6 +1347,16 @@ function PlanModal(props: {
             </p>
           </div>
           <div className="modal-header-actions">
+            {props.plan.summary.conflicts > 0 && (
+              <div className="collision-bulk-actions" aria-label="批量设置冲突处理方式">
+                <button className="ghost" disabled={props.isExecuting} onClick={() => props.updateAllCollisions("skip")}>
+                  全部跳过
+                </button>
+                <button className="ghost" disabled={props.isExecuting} onClick={() => props.updateAllCollisions("replace")}>
+                  全部替换
+                </button>
+              </div>
+            )}
             {props.isExecuting && (
               <button className="ghost" onClick={props.onMinimize}>
                 <Minimize2 size={15} />
@@ -1407,6 +1473,56 @@ function projectOutputDir(outputDir: string, projectName: string, season: string
     return normalized;
   }
   return `${normalized}\\${folderName}`;
+}
+
+function inferProjectNameFromScanResult(result: ScanAndMatchResult) {
+  const counts = new Map<string, number>();
+  for (const video of result.scan.videos) {
+    const inferred = inferProjectNameFromVideoFileName(video.fileName);
+    if (!inferred) {
+      continue;
+    }
+    counts.set(inferred, (counts.get(inferred) ?? 0) + 1);
+  }
+
+  return [...counts.entries()].sort((left, right) => right[1] - left[1] || right[0].length - left[0].length)[0]?.[0] ?? null;
+}
+
+function inferProjectNameFromVideoDir(path: string) {
+  const parts = path.replace(/[\\/]+$/, "").split(/[\\/]/).filter(Boolean);
+  const tail = parts[parts.length - 1] ?? "Anime";
+  const parent = parts.length > 1 ? parts[parts.length - 2] : undefined;
+  if (parent && /^(video|videos|raw|raws|source|sources)$/i.test(tail)) {
+    return cleanProjectNameCandidate(parent) || parent;
+  }
+  return cleanProjectNameCandidate(tail) || tail;
+}
+
+function inferProjectNameFromVideoFileName(fileName: string) {
+  const withoutExtension = fileName.replace(/\.[^.]+$/, "");
+  const withoutLeadingGroups = withoutExtension.replace(/^(?:\[[^\]]+\]\s*)+/, "");
+  const readable = withoutLeadingGroups.replace(/[._]+/g, " ");
+  const markers = [
+    /\bS\d{1,2}E\d{1,3}\b/i,
+    /\bS\d{1,2}\b/i,
+    /\s-\s*\d{1,3}(?:v\d+)?\b/i,
+    /\bEP?\s*\d{1,3}(?:v\d+)?\b/i,
+    /第\s*\d{1,3}\s*[话話]/,
+  ];
+  const markerIndexes = markers.map((marker) => readable.search(marker)).filter((index) => index > 0);
+  const candidate = markerIndexes.length > 0 ? readable.slice(0, Math.min(...markerIndexes)) : readable;
+  return cleanProjectNameCandidate(candidate);
+}
+
+function cleanProjectNameCandidate(value: string) {
+  return value
+    .replace(/\[[^\]]+\]/g, " ")
+    .replace(/\([^)]*(?:720p|1080p|2160p|x264|x265|h\.?264|h\.?265|hevc|web-dl|bdrip)[^)]*\)/gi, " ")
+    .replace(/\b(?:720p|1080p|2160p|x264|x265|h\.?264|h\.?265|hevc|web-dl|bdrip|dual|ddp?\d?(?:\.\d)?)\b.*$/i, "")
+    .replace(/[-_\s.]+$/g, "")
+    .replace(/[-_.]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 

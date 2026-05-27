@@ -515,6 +515,12 @@ pub struct SaveLocalLibraryRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RemoveLocalLibraryEntryRequest {
+    pub entry_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LocalAnimeLibraryEntry {
     #[serde(default)]
     pub id: String,

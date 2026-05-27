@@ -126,8 +126,8 @@ textarea:focus-visible {
 }
 
 .brand img {
-  width: 116px;
-  height: 88px;
+  width: 176px;
+  /* height: 88px; */
   object-fit: contain;
   filter: drop-shadow(0 0 22px rgba(231, 102, 174, 0.24));
 }
@@ -352,6 +352,21 @@ textarea:focus-visible {
   background: rgba(4, 16, 31, 0.58);
   color: #c8d5ed;
   font-size: 12px;
+}
+
+.directory-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.directory-actions .violet-outline {
+  flex: 1 1 auto;
+}
+
+.directory-actions .ghost {
+  flex: 0 0 auto;
+  min-width: 64px;
 }
 
 .violet-outline,
@@ -993,7 +1008,7 @@ tbody tr.selected {
   background: rgba(4, 16, 31, 0.42);
 }
 
-.candidate-row > span {
+.candidate-row>span {
   overflow: hidden;
   color: #aebcd5;
   font-size: 12px;
@@ -1096,6 +1111,19 @@ tbody tr.selected {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+}
+
+.collision-bulk-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 8px;
+  border-right: 1px solid rgba(151, 171, 214, 0.18);
+}
+
+.collision-bulk-actions button {
+  min-width: 82px;
+  white-space: nowrap;
 }
 
 .modal-header h2,
@@ -1467,6 +1495,7 @@ tbody tr.selected {
     opacity: 0;
     transform: translateY(10px) scale(0.98);
   }
+
   to {
     opacity: 1;
     transform: translateY(0) scale(1);

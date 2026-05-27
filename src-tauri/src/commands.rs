@@ -1,8 +1,8 @@
 use crate::domain::{
     AppSettings, BuildOrganizePlanRequest, MpvLaunchRequest, OrganizeExecutionResult, OrganizePlan,
-    ParseTrainingSample, ProjectConfig, SaveLocalLibraryRequest, SaveParseTrainingSampleRequest,
-    ScanAndMatchResult, ScanInput, SettingsStoragePaths, SubtitlePreferenceSnapshot, TokenFeatures,
-    UpdateLibraryEpisodeProgressRequest,
+    ParseTrainingSample, ProjectConfig, RemoveLocalLibraryEntryRequest, SaveLocalLibraryRequest,
+    SaveParseTrainingSampleRequest, ScanAndMatchResult, ScanInput, SettingsStoragePaths,
+    SubtitlePreferenceSnapshot, TokenFeatures, UpdateLibraryEpisodeProgressRequest,
 };
 use crate::error::{to_user_error, AppError};
 use crate::{crf::CrfSlotTagger, library, matcher, mpv, organizer, scanner, settings, training};
@@ -99,6 +99,15 @@ pub fn load_local_library(
 ) -> Result<crate::domain::LocalAnimeLibraryFile, String> {
     let library_path = local_library_path(&app).map_err(to_user_error)?;
     library::load_local_library(&library_path).map_err(to_user_error)
+}
+
+#[tauri::command]
+pub fn remove_local_library_entry(
+    app: tauri::AppHandle,
+    request: RemoveLocalLibraryEntryRequest,
+) -> Result<crate::domain::LocalAnimeLibraryFile, String> {
+    let library_path = local_library_path(&app).map_err(to_user_error)?;
+    library::remove_local_library_entry(&library_path, request).map_err(to_user_error)
 }
 
 #[tauri::command]

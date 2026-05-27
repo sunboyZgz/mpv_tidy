@@ -276,6 +276,10 @@ export interface SaveLocalLibraryRequest {
   coverStrategySnapshot: CoverStrategy | null;
 }
 
+export interface RemoveLocalLibraryEntryRequest {
+  entryId: string;
+}
+
 export interface LocalAnimeLibraryEntry {
   id: string;
   projectName: string;

@@ -24,6 +24,7 @@ pub fn run() -> Result<(), tauri::Error> {
             commands::reveal_path,
             commands::save_local_library_entry,
             commands::load_local_library,
+            commands::remove_local_library_entry,
             commands::update_library_episode_progress,
             commands::extract_parse_token_features,
             commands::save_parse_training_sample,

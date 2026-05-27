@@ -242,7 +242,6 @@ fn remove_external_subtitle_tracks(pipe_path: &str) -> AppResult<()> {
     // println!("===============");
 
     wait_until_no_external_subtitle_tracks(pipe_path)?;
-    // dump_subtitle_debug_properties(pipe_path)?;
     Ok(())
 }
 
@@ -274,25 +273,6 @@ fn wait_until_no_external_subtitle_tracks(pipe_path: &str) -> AppResult<()> {
 
 fn clear_sub_files_list(pipe_path: &str) -> AppResult<()> {
     send_ipc_request(pipe_path, json!(["change-list", "sub-files", "clr", ""]))?;
-    Ok(())
-}
-
-fn dump_subtitle_debug_properties(pipe_path: &str) -> AppResult<()> {
-    let track_list = send_ipc_request(pipe_path, json!(["get_property", "track-list"]))?;
-    let sid = send_ipc_request(pipe_path, json!(["get_property", "sid"]))?;
-    let secondary_sid = send_ipc_request(pipe_path, json!(["get_property", "secondary-sid"]))?;
-    let sub_files = send_ipc_request(pipe_path, json!(["get_property", "sub-files"]));
-
-    println!("========== MPV subtitle debug ==========");
-    println!("sid = {sid}");
-    println!("secondary-sid = {secondary_sid}");
-    match sub_files {
-        Ok(value) => println!("sub-files = {value}"),
-        Err(error) => println!("sub-files read failed = {error}"),
-    }
-    dump_track_list(&track_list);
-    println!("========================================");
-
     Ok(())
 }
 
@@ -862,15 +842,8 @@ fn bring_process_to_front(_process_id: u32) {}
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        expected_external_subtitle_count, external_subtitle_count, find_subtitle_track_id_by_path,
-        mpv_argument_count, parse_subtitle_tracks, resolve_requested_subtitle_track_ids,
-        track_list_has_video, track_list_ready_for_request, verify_subtitle_track_main_selection,
-        MpvSubtitleTrack,
-    };
-    use crate::domain::MpvLaunchRequest;
+    use super::{external_subtitle_count, parse_subtitle_tracks, track_list_has_video};
     use serde_json::json;
-    use std::path::PathBuf;
 
     #[test]
     fn detects_video_track_list_readiness() {

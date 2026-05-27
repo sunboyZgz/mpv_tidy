@@ -1,6 +1,7 @@
 use crate::domain::{
-    LibraryEpisodeRecord, LocalAnimeLibraryEntry, LocalAnimeLibraryFile, SaveLocalLibraryRequest,
-    UpdateLibraryEpisodeProgressRequest, WatchStatus,
+    LibraryEpisodeRecord, LocalAnimeLibraryEntry, LocalAnimeLibraryFile,
+    RemoveLocalLibraryEntryRequest, SaveLocalLibraryRequest, UpdateLibraryEpisodeProgressRequest,
+    WatchStatus,
 };
 use crate::error::{AppError, AppResult};
 use std::fs;
@@ -79,6 +80,26 @@ pub fn load_local_library(library_path: &Path) -> AppResult<LocalAnimeLibraryFil
     let mut file = serde_json::from_str::<LocalAnimeLibraryFile>(&text)
         .map_err(|error| AppError::LibrarySave(error.to_string()))?;
     normalize_library_file(&mut file);
+    Ok(file)
+}
+
+pub fn remove_local_library_entry(
+    library_path: &Path,
+    request: RemoveLocalLibraryEntryRequest,
+) -> AppResult<LocalAnimeLibraryFile> {
+    let mut file = load_local_library(library_path)?;
+    let before_count = file.entries.len();
+    file.entries.retain(|entry| entry.id != request.entry_id);
+    if file.entries.len() == before_count {
+        return Err(AppError::LibrarySave("未找到本地动漫库条目".to_owned()));
+    }
+
+    normalize_library_file(&mut file);
+    let payload = serde_json::to_string_pretty(&file)?;
+    if let Some(parent) = library_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(library_path, payload)?;
     Ok(file)
 }
 
@@ -212,10 +233,13 @@ fn now_unix() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{load_local_library, save_local_library_entry, update_episode_progress};
+    use super::{
+        load_local_library, remove_local_library_entry, save_local_library_entry,
+        update_episode_progress,
+    };
     use crate::domain::{
-        LibraryEpisodeRecord, MatchStatus, OrganizeMode, SaveLocalLibraryRequest,
-        UpdateLibraryEpisodeProgressRequest, WatchStatus,
+        LibraryEpisodeRecord, MatchStatus, OrganizeMode, RemoveLocalLibraryEntryRequest,
+        SaveLocalLibraryRequest, UpdateLibraryEpisodeProgressRequest, WatchStatus,
     };
     use std::error::Error;
     use std::fs;
@@ -306,6 +330,26 @@ mod tests {
 
         assert_eq!(updated.episodes[0].watch_status, WatchStatus::Partial);
         assert_eq!(updated.episodes[0].last_position_sec, Some(120));
+        Ok(())
+    }
+
+    #[test]
+    fn removes_library_entry_without_touching_files() -> Result<(), Box<dyn Error>> {
+        let temp = tempdir()?;
+        let library_path = temp.path().join("anime-library.json");
+        let output_dir = temp.path().join("out");
+        fs::create_dir_all(&output_dir)?;
+        let media_file = output_dir.join("S01E01.mkv");
+        fs::write(&media_file, "video")?;
+        let saved = save_local_library_entry(&library_path, request(output_dir))?;
+
+        let updated = remove_local_library_entry(
+            &library_path,
+            RemoveLocalLibraryEntryRequest { entry_id: saved.id },
+        )?;
+
+        assert!(updated.entries.is_empty());
+        assert!(media_file.exists());
         Ok(())
     }
 

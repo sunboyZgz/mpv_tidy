@@ -380,21 +380,35 @@
   line-height: 1.65;
 }
 
-.edit-info-button {
+.anime-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: auto;
+}
+
+.edit-info-button,
+.remove-library-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 9px;
   width: 164px;
   min-height: 42px;
-  margin-top: auto;
   border: 1px solid rgba(151, 171, 214, 0.3);
   border-radius: var(--asm-radius-control);
   background: rgba(5, 22, 41, 0.76);
   color: #eef3ff;
 }
 
-.edit-info-button:hover {
+.remove-library-button {
+  width: 120px;
+  border-color: rgba(255, 112, 145, 0.36);
+  color: #ffb8c8;
+}
+
+.edit-info-button:hover,
+.remove-library-button:hover {
   border-color: rgba(219, 99, 174, 0.56);
   color: #ffffff;
 }

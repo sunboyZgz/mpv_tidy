@@ -1,9 +1,10 @@
-import { ChevronLeft, ChevronRight, Edit3, FolderOpen, Minus, Play, Plus, RefreshCcw, RotateCcw, Search, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Edit3, FolderOpen, Minus, Play, Plus, RefreshCcw, RotateCcw, Search, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   launchMpv,
   loadAppSettings,
   loadLocalLibrary,
+  removeLocalLibraryEntry,
   revealPath as revealPathCommand,
   updateLibraryEpisodeProgress,
 } from "../../services/tauriCommands";
@@ -473,6 +474,34 @@ export function LocalAnimePage({
     showToast("信息已保存");
   }
 
+  async function removeAnimeFromLibrary(entry: LocalAnimeEntryUi) {
+    const confirmed = window.confirm(`从本地动漫库移除「${entry.title}」？\n\n只会移除库记录，不会删除本地视频或字幕文件。`);
+    if (!confirmed) {
+      return;
+    }
+
+    if (!isTauriRuntime()) {
+      setLibrary((current) => current.filter((candidate) => candidate.id !== entry.id));
+      setSelectedAnimeId(undefined);
+      setSelectedEpisodeId(undefined);
+      closePlaybackDrawer(null);
+      showToast("已从本地动漫库移除");
+      return;
+    }
+
+    try {
+      const updated = await removeLocalLibraryEntry({ entryId: entry.id });
+      const entries = updated.entries.map(libraryEntryToUi);
+      setLibrary(entries);
+      setSelectedAnimeId(selectDefaultAnimeId(entries));
+      setSelectedEpisodeId(undefined);
+      closePlaybackDrawer(null);
+      showToast("已从本地动漫库移除");
+    } catch (error) {
+      setPanelMessage(String(error));
+    }
+  }
+
   return (
     <main className="workspace library-workspace">
       <header className="library-header">
@@ -531,7 +560,11 @@ export function LocalAnimePage({
             </aside>
 
             <section className="anime-center-column">
-              <AnimeDetailCard entry={selectedAnime} onEdit={() => selectedAnime && setEditingAnime(selectedAnime)} />
+              <AnimeDetailCard
+                entry={selectedAnime}
+                onEdit={() => selectedAnime && setEditingAnime(selectedAnime)}
+                onRemove={() => selectedAnime && void removeAnimeFromLibrary(selectedAnime)}
+              />
               <EpisodeTable
                 anime={selectedAnime}
                 selectedEpisodeId={selectedEpisode?.id}
@@ -635,7 +668,15 @@ function AnimeListItem(props: { entry: LocalAnimeEntryUi; active: boolean; onCli
   );
 }
 
-function AnimeDetailCard({ entry, onEdit }: { entry: LocalAnimeEntryUi | null; onEdit: () => void }) {
+function AnimeDetailCard({
+  entry,
+  onEdit,
+  onRemove,
+}: {
+  entry: LocalAnimeEntryUi | null;
+  onEdit: () => void;
+  onRemove: () => void;
+}) {
   if (!entry) {
     return <EmptyState title="暂无本地动漫" body="请先在项目首页完成整理并保存到本地动漫" />;
   }
@@ -655,10 +696,16 @@ function AnimeDetailCard({ entry, onEdit }: { entry: LocalAnimeEntryUi | null; o
           </div>
         )}
         <p>{entry.description || "暂无简介，可点击编辑信息补充。"}</p>
-        <button className="edit-info-button" onClick={onEdit}>
-          <Edit3 size={17} />
-          编辑信息
-        </button>
+        <div className="anime-detail-actions">
+          <button className="edit-info-button" onClick={onEdit}>
+            <Edit3 size={17} />
+            编辑信息
+          </button>
+          <button className="remove-library-button" onClick={onRemove}>
+            <Trash2 size={17} />
+            移出库
+          </button>
+        </div>
       </div>
     </section>
   );

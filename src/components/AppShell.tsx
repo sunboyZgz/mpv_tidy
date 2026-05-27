@@ -23,8 +23,7 @@ export function AppShell(props: {
       <aside className="sidebar">
         <div className="brand">
           <img src={asset("images/app_logo.png")} alt="" />
-          <h1>Anime Subtitle Manager</h1>
-          <p>mpv_tidy</p>
+          <h1>Anime  Manager</h1>
         </div>
         <nav className="side-nav">
           {navItems.map((item) => {

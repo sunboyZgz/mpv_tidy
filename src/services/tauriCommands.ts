@@ -7,6 +7,7 @@ import type {
   LocalAnimeLibraryFile,
   OrganizeExecutionResult,
   OrganizePlan,
+  RemoveLocalLibraryEntryRequest,
   SaveLocalLibraryRequest,
   SaveParseTrainingSampleRequest,
   SettingsStoragePaths,
@@ -69,6 +70,10 @@ export function saveLocalLibraryEntry(request: SaveLocalLibraryRequest) {
 
 export function loadLocalLibrary() {
   return invoke<LocalAnimeLibraryFile>("load_local_library");
+}
+
+export function removeLocalLibraryEntry(request: RemoveLocalLibraryEntryRequest) {
+  return invoke<LocalAnimeLibraryFile>("remove_local_library_entry", { request });
 }
 
 export function updateLibraryEpisodeProgress(request: UpdateLibraryEpisodeProgressRequest) {
