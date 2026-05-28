@@ -15,6 +15,12 @@ pub fn run() -> Result<(), tauri::Error> {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(mpv::MpvController::default())
+        .setup(|app| {
+            if let Err(error) = commands::print_settings_storage_paths(app.handle()) {
+                eprintln!("Failed to print storage paths: {error}");
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::scan_and_match,
             commands::build_organize_plan,

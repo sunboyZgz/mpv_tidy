@@ -459,6 +459,8 @@ pub struct AnimeSubMapEpisode {
     pub video: Option<PathBuf>,
     pub primary_subtitle: Option<PathBuf>,
     pub secondary_subtitle: Option<PathBuf>,
+    #[serde(default)]
+    pub additional_subtitles: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

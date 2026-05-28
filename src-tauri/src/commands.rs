@@ -135,7 +135,29 @@ pub fn save_parse_training_sample(
 
 #[tauri::command]
 pub fn settings_storage_paths(app: tauri::AppHandle) -> Result<SettingsStoragePaths, String> {
-    let data_dir = app_data_dir(&app).map_err(to_user_error)?;
+    storage_paths(&app).map_err(to_user_error)
+}
+
+pub(crate) fn print_settings_storage_paths(app: &tauri::AppHandle) -> Result<(), AppError> {
+    let paths = storage_paths(app)?;
+    println!("========== Anime Subtitle Manager storage paths ==========");
+    println!("training_data_dir = {}", paths.training_data_dir.display());
+    println!(
+        "training_sample_file = {}",
+        paths.training_sample_file.display()
+    );
+    println!("crf_model_file = {}", paths.crf_model_file.display());
+    println!("app_settings_file = {}", paths.app_settings_file.display());
+    println!(
+        "local_library_file = {}",
+        paths.local_library_file.display()
+    );
+    println!("==========================================================");
+    Ok(())
+}
+
+fn storage_paths(app: &tauri::AppHandle) -> Result<SettingsStoragePaths, AppError> {
+    let data_dir = app_data_dir(app)?;
     Ok(SettingsStoragePaths {
         training_data_dir: data_dir.clone(),
         training_sample_file: data_dir.join("parser-training-samples.jsonl"),

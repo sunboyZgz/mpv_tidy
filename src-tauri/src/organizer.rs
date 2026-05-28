@@ -1,7 +1,8 @@
 use crate::domain::{
     AnimeSubMap, AnimeSubMapEpisode, BuildOrganizePlanRequest, CollisionAction, EpisodeMatch,
-    FileOperationKind, FileOperationStatus, OrganizeExecutionResult, OrganizeMode, OrganizePlan,
-    OrganizePlanItem, OrganizePlanSummary, OrganizeProgressEvent, SubtitleCandidate, SubtitleRole,
+    FileOperationKind, FileOperationStatus, LanguageCode, OrganizeExecutionResult, OrganizeMode,
+    OrganizePlan, OrganizePlanItem, OrganizePlanSummary, OrganizeProgressEvent, SubtitleCandidate,
+    SubtitleRole,
 };
 use crate::error::{AppError, AppResult};
 use std::fs;
@@ -225,6 +226,14 @@ fn add_match_items(
         ));
     }
 
+    let additional_subtitles = add_additional_und_subtitle_items(
+        episode_match,
+        output_dir,
+        project_name,
+        &episode_key,
+        items,
+    );
+
     AnimeSubMapEpisode {
         episode_key,
         video: video_destination.and_then(|path| relative_to_output(output_dir, &path)),
@@ -232,7 +241,54 @@ fn add_match_items(
             .and_then(|path| relative_to_output(output_dir, &path)),
         secondary_subtitle: secondary_destination
             .and_then(|path| relative_to_output(output_dir, &path)),
+        additional_subtitles,
     }
+}
+
+fn add_additional_und_subtitle_items(
+    episode_match: &EpisodeMatch,
+    output_dir: &Path,
+    project_name: &str,
+    episode_key: &str,
+    items: &mut Vec<OrganizePlanItem>,
+) -> Vec<PathBuf> {
+    let mut destinations = Vec::new();
+
+    for candidate in &episode_match.candidates {
+        if candidate.language != LanguageCode::Und || is_selected_subtitle(candidate, episode_match)
+        {
+            continue;
+        }
+
+        let destination = unique_planned_destination(
+            subtitle_candidate_destination(candidate, output_dir, project_name, episode_key),
+            items,
+        );
+        items.push(plan_item(
+            candidate.path.to_path_buf(),
+            destination.to_path_buf(),
+            FileOperationKind::Subtitle,
+            episode_key,
+            Some(candidate.language),
+            Some(SubtitleRole::Candidate),
+        ));
+        if let Some(relative) = relative_to_output(output_dir, &destination) {
+            destinations.push(relative);
+        }
+    }
+
+    destinations
+}
+
+fn is_selected_subtitle(candidate: &SubtitleCandidate, episode_match: &EpisodeMatch) -> bool {
+    episode_match
+        .primary_subtitle
+        .as_ref()
+        .is_some_and(|selected| selected.path == candidate.path)
+        || episode_match
+            .secondary_subtitle
+            .as_ref()
+            .is_some_and(|selected| selected.path == candidate.path)
 }
 
 fn subtitle_destination(
@@ -251,6 +307,48 @@ fn subtitle_destination(
         "{project_name} {episode_key}.{role_language}.{}",
         selected.extension
     )))
+}
+
+fn subtitle_candidate_destination(
+    subtitle: &SubtitleCandidate,
+    output_dir: &Path,
+    project_name: &str,
+    episode_key: &str,
+) -> PathBuf {
+    let language = subtitle.language.as_str();
+    output_dir.join("subs").join(language).join(format!(
+        "{project_name} {episode_key}.{language}.{}",
+        subtitle.extension
+    ))
+}
+
+fn unique_planned_destination(destination: PathBuf, items: &[OrganizePlanItem]) -> PathBuf {
+    if !items.iter().any(|item| item.destination == destination) {
+        return destination;
+    }
+
+    let parent = destination
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_default();
+    let stem = destination
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("file");
+    let extension = destination.extension().and_then(|value| value.to_str());
+
+    for index in 1..=999 {
+        let candidate_name = match extension {
+            Some(extension) => format!("{stem} ({index}).{extension}"),
+            None => format!("{stem} ({index})"),
+        };
+        let candidate = parent.join(candidate_name);
+        if !items.iter().any(|item| item.destination == candidate) {
+            return candidate;
+        }
+    }
+
+    destination
 }
 
 fn plan_item(
@@ -400,8 +498,9 @@ fn is_reserved_windows_name(value: &str) -> bool {
 mod tests {
     use super::{build_plan, execute_plan_with_progress};
     use crate::domain::{
-        BuildOrganizePlanRequest, CollisionAction, EpisodeKey, EpisodeMatch, LanguageCode,
-        MatchStatus, OrganizeMode, ParseStatus, ScannedVideo, SubtitleCandidate, SubtitleRole,
+        BuildOrganizePlanRequest, CollisionAction, EpisodeKey, EpisodeMatch, FileOperationKind,
+        LanguageCode, MatchStatus, OrganizeMode, ParseStatus, ScannedVideo, SubtitleCandidate,
+        SubtitleRole,
     };
     use std::error::Error;
     use std::fs;
@@ -565,6 +664,96 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn organizes_und_candidates_into_und_directory() -> Result<(), Box<dyn Error>> {
+        let temp = tempdir()?;
+        let source = temp.path().join("src");
+        let output = temp.path().join("out");
+        fs::create_dir_all(&source)?;
+        let video = source.join("S01E01.mkv");
+        let und_sub = source.join("S01E01.srt");
+        fs::write(&video, "video")?;
+        fs::write(&und_sub, "sub")?;
+
+        let plan = build_plan(request_with_match(
+            &output,
+            OrganizeMode::Copy,
+            episode_match_with_candidates(
+                &video,
+                None,
+                None,
+                vec![subtitle_candidate(
+                    &und_sub,
+                    "S01E01.srt",
+                    "srt",
+                    LanguageCode::Und,
+                    SubtitleRole::Candidate,
+                )],
+            ),
+        ))?;
+        let destination = project_root(&output)
+            .join("subs")
+            .join("und")
+            .join("Jujutsu Kaisen S01E01.und.srt");
+
+        assert!(plan.items.iter().any(|item| {
+            item.kind == FileOperationKind::Subtitle
+                && item.role == Some(SubtitleRole::Candidate)
+                && item.destination == destination
+        }));
+        assert_eq!(
+            plan.project_map.episodes[0].additional_subtitles,
+            vec![PathBuf::from("subs/und/Jujutsu Kaisen S01E01.und.srt")]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn does_not_duplicate_selected_und_subtitle_candidate() -> Result<(), Box<dyn Error>> {
+        let temp = tempdir()?;
+        let source = temp.path().join("src");
+        let output = temp.path().join("out");
+        fs::create_dir_all(&source)?;
+        let video = source.join("S01E01.mkv");
+        let und_sub = source.join("S01E01.srt");
+        fs::write(&video, "video")?;
+        fs::write(&und_sub, "sub")?;
+
+        let selected = subtitle_candidate(
+            &und_sub,
+            "S01E01.srt",
+            "srt",
+            LanguageCode::Und,
+            SubtitleRole::Primary,
+        );
+        let plan = build_plan(request_with_match(
+            &output,
+            OrganizeMode::Copy,
+            episode_match_with_candidates(
+                &video,
+                Some(selected.to_owned()),
+                None,
+                vec![subtitle_candidate(
+                    &und_sub,
+                    "S01E01.srt",
+                    "srt",
+                    LanguageCode::Und,
+                    SubtitleRole::Candidate,
+                )],
+            ),
+        ))?;
+
+        assert_eq!(
+            plan.items
+                .iter()
+                .filter(|item| item.kind == FileOperationKind::Subtitle)
+                .count(),
+            1
+        );
+        assert!(plan.project_map.episodes[0].additional_subtitles.is_empty());
+        Ok(())
+    }
+
     fn project_root(output: &Path) -> PathBuf {
         output.join("Jujutsu Kaisen S01")
     }
@@ -581,11 +770,19 @@ mod tests {
         video: &Path,
         sub: &Path,
     ) -> BuildOrganizePlanRequest {
+        request_with_match(output, mode, episode_match(video, sub))
+    }
+
+    fn request_with_match(
+        output: &Path,
+        mode: OrganizeMode,
+        episode_match: EpisodeMatch,
+    ) -> BuildOrganizePlanRequest {
         BuildOrganizePlanRequest {
             project_name: "Jujutsu Kaisen".to_owned(),
             season: "S01".to_owned(),
             output_dir: output.to_path_buf(),
-            matches: vec![episode_match(video, sub)],
+            matches: vec![episode_match],
             mode,
             primary_language: LanguageCode::ZhHans,
             secondary_language: Some(LanguageCode::Ja),
@@ -596,18 +793,7 @@ mod tests {
         EpisodeMatch {
             episode: EpisodeKey::new(1, 1),
             episode_key: "S01E01".to_owned(),
-            video: Some(ScannedVideo {
-                path: video.to_path_buf(),
-                file_name: "S01E01.mkv".to_owned(),
-                extension: "mkv".to_owned(),
-                file_size_bytes: 0,
-                episode: Some(EpisodeKey::new(1, 1)),
-                episode_key: Some("S01E01".to_owned()),
-                confidence: 100,
-                parse_status: ParseStatus::Accepted,
-                parse_notes: Vec::new(),
-                parse_candidates: Vec::new(),
-            }),
+            video: Some(video_record(video)),
             primary_subtitle: Some(SubtitleCandidate {
                 path: sub.to_path_buf(),
                 file_name: "S01E01.zh-Hans.ass".to_owned(),
@@ -620,6 +806,56 @@ mod tests {
             candidates: Vec::new(),
             status: MatchStatus::Matched,
             notes: Vec::new(),
+        }
+    }
+
+    fn episode_match_with_candidates(
+        video: &Path,
+        primary_subtitle: Option<SubtitleCandidate>,
+        secondary_subtitle: Option<SubtitleCandidate>,
+        candidates: Vec<SubtitleCandidate>,
+    ) -> EpisodeMatch {
+        EpisodeMatch {
+            episode: EpisodeKey::new(1, 1),
+            episode_key: "S01E01".to_owned(),
+            video: Some(video_record(video)),
+            primary_subtitle,
+            secondary_subtitle,
+            candidates,
+            status: MatchStatus::Matched,
+            notes: Vec::new(),
+        }
+    }
+
+    fn video_record(video: &Path) -> ScannedVideo {
+        ScannedVideo {
+            path: video.to_path_buf(),
+            file_name: "S01E01.mkv".to_owned(),
+            extension: "mkv".to_owned(),
+            file_size_bytes: 0,
+            episode: Some(EpisodeKey::new(1, 1)),
+            episode_key: Some("S01E01".to_owned()),
+            confidence: 100,
+            parse_status: ParseStatus::Accepted,
+            parse_notes: Vec::new(),
+            parse_candidates: Vec::new(),
+        }
+    }
+
+    fn subtitle_candidate(
+        path: &Path,
+        file_name: &str,
+        extension: &str,
+        language: LanguageCode,
+        role: SubtitleRole,
+    ) -> SubtitleCandidate {
+        SubtitleCandidate {
+            path: path.to_path_buf(),
+            file_name: file_name.to_owned(),
+            extension: extension.to_owned(),
+            language,
+            confidence: 100,
+            role,
         }
     }
 }

@@ -396,6 +396,171 @@ pub fn detect_language(path: &Path) -> LanguageCode {
     LanguageCode::Und
 }
 
+pub fn detect_language_from_subtitle_content(text: &str) -> LanguageCode {
+    let stats = subtitle_language_stats(text);
+
+    if stats.kana >= 3 || (stats.kana >= 1 && stats.han >= 2) {
+        return LanguageCode::Ja;
+    }
+
+    if stats.han >= 4 {
+        if stats.traditional_score > stats.simplified_score {
+            return LanguageCode::ZhHant;
+        }
+        return LanguageCode::ZhHans;
+    }
+
+    if stats.ascii_letters >= 40
+        && stats.han == 0
+        && stats.kana == 0
+        && english_common_word_hits(text) >= 4
+    {
+        return LanguageCode::En;
+    }
+
+    LanguageCode::Und
+}
+
+#[derive(Default)]
+struct SubtitleLanguageStats {
+    han: usize,
+    kana: usize,
+    ascii_letters: usize,
+    simplified_score: usize,
+    traditional_score: usize,
+}
+
+fn subtitle_language_stats(text: &str) -> SubtitleLanguageStats {
+    let mut stats = SubtitleLanguageStats::default();
+    for character in text.chars() {
+        if character.is_ascii_alphabetic() {
+            stats.ascii_letters += 1;
+        }
+        if is_han(character) {
+            stats.han += 1;
+        }
+        if is_kana(character) {
+            stats.kana += 1;
+        }
+        if is_simplified_only_character(character) {
+            stats.simplified_score += 1;
+        }
+        if is_traditional_only_character(character) {
+            stats.traditional_score += 1;
+        }
+    }
+    stats
+}
+
+fn is_han(character: char) -> bool {
+    ('\u{3400}'..='\u{4dbf}').contains(&character)
+        || ('\u{4e00}'..='\u{9fff}').contains(&character)
+        || ('\u{f900}'..='\u{faff}').contains(&character)
+        || ('\u{20000}'..='\u{2a6df}').contains(&character)
+}
+
+fn is_kana(character: char) -> bool {
+    ('\u{3040}'..='\u{30ff}').contains(&character)
+        || ('\u{31f0}'..='\u{31ff}').contains(&character)
+        || ('\u{ff66}'..='\u{ff9f}').contains(&character)
+}
+
+fn is_simplified_only_character(character: char) -> bool {
+    matches!(
+        character,
+        '\u{8fd9}'
+            | '\u{4e2a}'
+            | '\u{4eec}'
+            | '\u{4e3a}'
+            | '\u{4f1a}'
+            | '\u{8bf4}'
+            | '\u{5bf9}'
+            | '\u{56fd}'
+            | '\u{5b66}'
+            | '\u{65f6}'
+            | '\u{540e}'
+            | '\u{8fc7}'
+            | '\u{91cc}'
+            | '\u{4e48}'
+            | '\u{5417}'
+            | '\u{6765}'
+            | '\u{8fd8}'
+            | '\u{89c1}'
+            | '\u{542c}'
+            | '\u{65e0}'
+            | '\u{73b0}'
+            | '\u{70b9}'
+            | '\u{5f00}'
+            | '\u{5173}'
+            | '\u{8fdb}'
+            | '\u{8ba9}'
+    )
+}
+
+fn is_traditional_only_character(character: char) -> bool {
+    matches!(
+        character,
+        '\u{9019}'
+            | '\u{500b}'
+            | '\u{5011}'
+            | '\u{70ba}'
+            | '\u{6703}'
+            | '\u{8aaa}'
+            | '\u{5c0d}'
+            | '\u{570b}'
+            | '\u{5b78}'
+            | '\u{6642}'
+            | '\u{5f8c}'
+            | '\u{904e}'
+            | '\u{88e1}'
+            | '\u{9ebc}'
+            | '\u{55ce}'
+            | '\u{4f86}'
+            | '\u{9084}'
+            | '\u{898b}'
+            | '\u{807d}'
+            | '\u{7121}'
+            | '\u{73fe}'
+            | '\u{9ede}'
+            | '\u{958b}'
+            | '\u{95dc}'
+            | '\u{9032}'
+            | '\u{8b93}'
+    )
+}
+
+fn english_common_word_hits(text: &str) -> usize {
+    text.split(|character: char| !character.is_ascii_alphabetic())
+        .filter(|word| {
+            matches!(
+                word.to_ascii_lowercase().as_str(),
+                "the"
+                    | "and"
+                    | "you"
+                    | "that"
+                    | "this"
+                    | "have"
+                    | "for"
+                    | "not"
+                    | "with"
+                    | "are"
+                    | "what"
+                    | "your"
+                    | "will"
+                    | "can"
+                    | "just"
+                    | "about"
+                    | "from"
+                    | "know"
+                    | "like"
+                    | "was"
+                    | "but"
+                    | "hello"
+            )
+        })
+        .count()
+}
+
 fn regex_episode_candidates_for_season(text: &str, season: u16) -> Vec<EpisodeCandidate> {
     let mut candidates = Vec::new();
 
@@ -1600,7 +1765,10 @@ fn build_natural_part(text: &str, is_number: bool) -> NaturalPart {
 #[cfg(test)]
 mod tests {
     use super::{build_training_sample, parse_episode_batch_with_crf, token_features_for_path};
-    use super::{detect_language, natural_str_cmp, parse_episode, parse_episode_batch};
+    use super::{
+        detect_language, detect_language_from_subtitle_content, natural_str_cmp, parse_episode,
+        parse_episode_batch,
+    };
     use crate::crf::{CrfSlotModel, CrfSlotTagger};
     use crate::domain::{
         EpisodeKey, LanguageCode, ParseCandidateSource, ParseSlotLabel, ParseStatus,
@@ -1947,5 +2115,45 @@ mod tests {
         for (name, expected) in fixtures {
             assert_eq!(detect_language(&PathBuf::from(name)), expected);
         }
+    }
+
+    #[test]
+    fn detects_language_from_subtitle_content() {
+        let fixtures = [
+            (
+                "1\n00:00:01,000 --> 00:00:02,000\n\u{3053}\u{308c}\u{306f}\u{30c6}\u{30b9}\u{30c8}\u{3067}\u{3059}\n",
+                LanguageCode::Ja,
+            ),
+            (
+                "Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,\u{8fd9}\u{4e2a}\u{5b66}\u{751f}\u{4f1a}\u{8bf4}\u{4e2d}\u{6587}\n",
+                LanguageCode::ZhHans,
+            ),
+            (
+                "Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,\u{9019}\u{500b}\u{5b78}\u{751f}\u{6703}\u{8aaa}\u{4e2d}\u{6587}\n",
+                LanguageCode::ZhHant,
+            ),
+            (
+                "Hello, this is the subtitle and you will know what the line is about.",
+                LanguageCode::En,
+            ),
+            (
+                "Bonjour, ceci est une ligne de sous-titre sans marqueur reconnu.",
+                LanguageCode::Und,
+            ),
+        ];
+
+        for (content, expected) in fixtures {
+            assert_eq!(detect_language_from_subtitle_content(content), expected);
+        }
+    }
+
+    #[test]
+    fn defaults_ambiguous_chinese_content_to_simplified() {
+        assert_eq!(
+            detect_language_from_subtitle_content(
+                "\u{4f60}\u{597d}\u{4e16}\u{754c}\u{670b}\u{53cb}\u{4eca}\u{5929}"
+            ),
+            LanguageCode::ZhHans
+        );
     }
 }
