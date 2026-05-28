@@ -1,0 +1,76 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "app-v*"
+  workflow_dispatch:
+
+jobs:
+  release-windows:
+    permissions:
+      contents: write
+
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.2.2
+          run_install: false
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: frontend typecheck
+        run: pnpm typecheck
+
+      - name: frontend tests
+        run: pnpm test
+
+      - name: frontend build
+        run: pnpm build
+
+      - name: Rust format check
+        working-directory: src-tauri
+        run: cargo fmt --all -- --check
+
+      - name: Rust clippy
+        working-directory: src-tauri
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Rust tests
+        working-directory: src-tauri
+        run: cargo test --workspace
+
+      - name: Rust check
+        working-directory: src-tauri
+        run: cargo check --workspace
+
+      - name: build and upload Tauri release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: app-v__VERSION__
+          releaseName: "Anime Subtitle Manager v__VERSION__"
+          releaseBody: "Windows installer for Anime Subtitle Manager."
+          releaseDraft: true
+          prerelease: false
