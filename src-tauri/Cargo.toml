@@ -1,6 +1,6 @@
 [package]
 name = "mpv-tidy"
-version = "0.1.0"
+version = "0.1.1"
 description = "Anime Subtitle Manager / 动漫字幕整理与 MPV 启动器"
 authors = ["mpv_tidy contributors"]
 edition = "2021"
