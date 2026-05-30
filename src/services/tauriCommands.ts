@@ -8,8 +8,12 @@ import type {
   OrganizeExecutionResult,
   OrganizePlan,
   RemoveLocalLibraryEntryRequest,
+  RepairLibraryEntryPathsRequest,
+  RepairLibraryEntryPathsResult,
   SaveLocalLibraryRequest,
   SaveParseTrainingSampleRequest,
+  ScanEmbeddedSubtitleTracksRequest,
+  ScanEmbeddedSubtitleTracksResult,
   SettingsStoragePaths,
   ScanAndMatchResult,
   ScanInput,
@@ -22,6 +26,8 @@ export interface MpvLaunchRequest {
   videoPath: string;
   primarySubtitle: string | null;
   secondarySubtitle: string | null;
+  primaryEmbeddedSubtitleTrackId: number | null;
+  secondaryEmbeddedSubtitleTrackId: number | null;
   primarySubtitleDelaySeconds: number | null;
   secondarySubtitleDelaySeconds: number | null;
   extraArgs: string[];
@@ -76,8 +82,16 @@ export function removeLocalLibraryEntry(request: RemoveLocalLibraryEntryRequest)
   return invoke<LocalAnimeLibraryFile>("remove_local_library_entry", { request });
 }
 
+export function repairLibraryEntryPaths(request: RepairLibraryEntryPathsRequest) {
+  return invoke<RepairLibraryEntryPathsResult>("repair_library_entry_paths", { request });
+}
+
 export function updateLibraryEpisodeProgress(request: UpdateLibraryEpisodeProgressRequest) {
   return invoke<LocalAnimeLibraryEntry>("update_library_episode_progress", { request });
+}
+
+export function scanEmbeddedSubtitleTracks(request: ScanEmbeddedSubtitleTracksRequest) {
+  return invoke<ScanEmbeddedSubtitleTracksResult>("scan_embedded_subtitle_tracks", { request });
 }
 
 export function extractParseTokenFeatures(path: string) {

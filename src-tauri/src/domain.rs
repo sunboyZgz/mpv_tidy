@@ -470,6 +470,10 @@ pub struct MpvLaunchRequest {
     pub video_path: PathBuf,
     pub primary_subtitle: Option<PathBuf>,
     pub secondary_subtitle: Option<PathBuf>,
+    #[serde(default)]
+    pub primary_embedded_subtitle_track_id: Option<i64>,
+    #[serde(default)]
+    pub secondary_embedded_subtitle_track_id: Option<i64>,
     pub primary_subtitle_delay_seconds: Option<f64>,
     pub secondary_subtitle_delay_seconds: Option<f64>,
     pub extra_args: Vec<String>,
@@ -482,6 +486,17 @@ pub struct MpvLaunchResult {
     pub argument_count: usize,
     pub reused_existing: bool,
     pub switched_video: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EmbeddedSubtitleTrack {
+    pub id: i64,
+    pub language: LanguageCode,
+    #[serde(default)]
+    pub language_tag: Option<String>,
+    pub title: Option<String>,
+    pub codec: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -501,6 +516,8 @@ pub struct LibraryEpisodeRecord {
     pub progress_percent: Option<u8>,
     #[serde(default)]
     pub updated_at_unix: u64,
+    #[serde(default)]
+    pub embedded_subtitle_tracks: Vec<EmbeddedSubtitleTrack>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -519,6 +536,44 @@ pub struct SaveLocalLibraryRequest {
 #[serde(rename_all = "camelCase")]
 pub struct RemoveLocalLibraryEntryRequest {
     pub entry_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepairLibraryEntryPathsRequest {
+    pub entry_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepairLibraryEntryPathsResult {
+    pub entry: LocalAnimeLibraryEntry,
+    pub repaired_episode_count: usize,
+    pub missing_episode_count: usize,
+    pub map_file_path: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanEmbeddedSubtitleTracksRequest {
+    pub entry_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EmbeddedSubtitleScanFailure {
+    pub episode_key: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanEmbeddedSubtitleTracksResult {
+    pub entry: LocalAnimeLibraryEntry,
+    pub scanned_episode_count: usize,
+    pub embedded_subtitle_count: usize,
+    pub episodes_without_embedded_subtitles: usize,
+    pub failed_episodes: Vec<EmbeddedSubtitleScanFailure>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

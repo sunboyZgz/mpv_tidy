@@ -1,9 +1,11 @@
 use crate::domain::{
-    LibraryEpisodeRecord, LocalAnimeLibraryEntry, LocalAnimeLibraryFile,
-    RemoveLocalLibraryEntryRequest, SaveLocalLibraryRequest, UpdateLibraryEpisodeProgressRequest,
-    WatchStatus,
+    AnimeSubMap, EmbeddedSubtitleScanFailure, LibraryEpisodeRecord, LocalAnimeLibraryEntry,
+    LocalAnimeLibraryFile, RemoveLocalLibraryEntryRequest, RepairLibraryEntryPathsRequest,
+    RepairLibraryEntryPathsResult, SaveLocalLibraryRequest, ScanEmbeddedSubtitleTracksRequest,
+    ScanEmbeddedSubtitleTracksResult, UpdateLibraryEpisodeProgressRequest, WatchStatus,
 };
 use crate::error::{AppError, AppResult};
+use crate::mpv;
 use std::fs;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -103,6 +105,94 @@ pub fn remove_local_library_entry(
     Ok(file)
 }
 
+pub fn repair_library_entry_paths(
+    library_path: &Path,
+    request: RepairLibraryEntryPathsRequest,
+) -> AppResult<RepairLibraryEntryPathsResult> {
+    let mut file = load_local_library(library_path)?;
+    let now = now_unix();
+    let Some(entry_index) = file
+        .entries
+        .iter()
+        .position(|entry| entry.id == request.entry_id)
+    else {
+        return Err(AppError::LibrarySave("未找到本地动漫库条目".to_owned()));
+    };
+
+    let entry_output_dir = file.entries[entry_index].output_dir.to_path_buf();
+    let map_file_path = entry_output_dir.join("anime-sub-map.json");
+    if !map_file_path.is_file() {
+        return Err(AppError::MissingFile(map_file_path));
+    }
+
+    let text = fs::read_to_string(&map_file_path)?;
+    let project_map = serde_json::from_str::<AnimeSubMap>(&text)
+        .map_err(|error| AppError::LibrarySave(error.to_string()))?;
+    let base_dir = if project_map.output_dir.is_dir() {
+        project_map.output_dir.to_path_buf()
+    } else {
+        entry_output_dir
+    };
+
+    let mut repaired_episode_count = 0usize;
+    let mut missing_episode_count = 0usize;
+
+    {
+        let entry = &mut file.entries[entry_index];
+        for episode in &mut entry.episodes {
+            let Some(map_episode) = project_map
+                .episodes
+                .iter()
+                .find(|candidate| candidate.episode_key == episode.episode_key)
+            else {
+                missing_episode_count += 1;
+                continue;
+            };
+
+            let next_video_path = map_episode
+                .video
+                .as_ref()
+                .map(|path| resolve_project_map_path(&base_dir, path));
+            let next_primary_subtitle_path = map_episode
+                .primary_subtitle
+                .as_ref()
+                .map(|path| resolve_project_map_path(&base_dir, path));
+            let next_secondary_subtitle_path = map_episode
+                .secondary_subtitle
+                .as_ref()
+                .map(|path| resolve_project_map_path(&base_dir, path));
+
+            if episode.video_path != next_video_path
+                || episode.primary_subtitle_path != next_primary_subtitle_path
+                || episode.secondary_subtitle_path != next_secondary_subtitle_path
+            {
+                repaired_episode_count += 1;
+            }
+
+            episode.video_path = next_video_path;
+            episode.primary_subtitle_path = next_primary_subtitle_path;
+            episode.secondary_subtitle_path = next_secondary_subtitle_path;
+            episode.updated_at_unix = now;
+        }
+
+        entry.project_name = project_map.project_name;
+        entry.season = project_map.season;
+        entry.output_dir = base_dir;
+        entry.updated_at_unix = now;
+    }
+
+    normalize_library_file(&mut file);
+    let updated_entry = file.entries[entry_index].to_owned();
+    write_library_file(library_path, &file)?;
+
+    Ok(RepairLibraryEntryPathsResult {
+        entry: updated_entry,
+        repaired_episode_count,
+        missing_episode_count,
+        map_file_path,
+    })
+}
+
 pub fn update_episode_progress(
     library_path: &Path,
     request: UpdateLibraryEpisodeProgressRequest,
@@ -137,6 +227,114 @@ pub fn update_episode_progress(
     }
     fs::write(library_path, payload)?;
     Ok(updated)
+}
+
+pub fn scan_embedded_subtitle_tracks(
+    library_path: &Path,
+    mpv_path: &Path,
+    request: ScanEmbeddedSubtitleTracksRequest,
+) -> AppResult<ScanEmbeddedSubtitleTracksResult> {
+    let mut file = load_local_library(library_path)?;
+    let now = now_unix();
+    let Some(entry_index) = file
+        .entries
+        .iter()
+        .position(|entry| entry.id == request.entry_id)
+    else {
+        return Err(AppError::LibrarySave("未找到本地动漫库条目".to_owned()));
+    };
+
+    let mut scanned_episode_count = 0usize;
+    let mut embedded_subtitle_count = 0usize;
+    let mut episodes_without_embedded_subtitles = 0usize;
+    let mut failed_episodes = Vec::new();
+
+    {
+        let entry = &mut file.entries[entry_index];
+        let sample = entry.episodes.iter().find_map(|episode| {
+            let video_path = episode.video_path.as_ref()?;
+            if video_path.is_file() {
+                Some((episode.episode_key.to_owned(), video_path.to_path_buf()))
+            } else {
+                None
+            }
+        });
+        let episodes_with_video = entry
+            .episodes
+            .iter()
+            .filter(|episode| episode.video_path.is_some())
+            .count();
+
+        match sample {
+            Some((sample_episode_key, sample_video_path)) => {
+                scanned_episode_count = 1;
+                match scan_episode_embedded_tracks(mpv_path, &sample_video_path) {
+                    Ok(tracks) => {
+                        if tracks.is_empty() {
+                            episodes_without_embedded_subtitles = episodes_with_video;
+                        }
+                        embedded_subtitle_count = tracks.len();
+                        for episode in entry
+                            .episodes
+                            .iter_mut()
+                            .filter(|episode| episode.video_path.is_some())
+                        {
+                            episode.embedded_subtitle_tracks = tracks.clone();
+                            episode.updated_at_unix = now;
+                        }
+                    }
+                    Err(error) => failed_episodes.push(EmbeddedSubtitleScanFailure {
+                        episode_key: sample_episode_key,
+                        message: error.to_string(),
+                    }),
+                }
+            }
+            None => failed_episodes.push(EmbeddedSubtitleScanFailure {
+                episode_key: "all".to_owned(),
+                message: "没有找到可用于识别内封字幕的视频文件".to_owned(),
+            }),
+        }
+        entry.updated_at_unix = now;
+    }
+
+    normalize_library_file(&mut file);
+    let updated_entry = file.entries[entry_index].to_owned();
+    write_library_file(library_path, &file)?;
+
+    Ok(ScanEmbeddedSubtitleTracksResult {
+        entry: updated_entry,
+        scanned_episode_count,
+        embedded_subtitle_count,
+        episodes_without_embedded_subtitles,
+        failed_episodes,
+    })
+}
+
+fn scan_episode_embedded_tracks(
+    mpv_path: &Path,
+    video_path: &Path,
+) -> AppResult<Vec<crate::domain::EmbeddedSubtitleTrack>> {
+    if !video_path.is_file() {
+        return Err(AppError::MissingFile(video_path.to_path_buf()));
+    }
+    mpv::scan_embedded_subtitle_tracks(mpv_path, video_path)
+}
+
+fn write_library_file(library_path: &Path, file: &LocalAnimeLibraryFile) -> AppResult<()> {
+    let payload = serde_json::to_string_pretty(file)?;
+    if let Some(parent) = library_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(library_path, payload)?;
+    Ok(())
+}
+
+fn resolve_project_map_path(base_dir: &Path, path: &Path) -> std::path::PathBuf {
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        base_dir.join(path)
+    }
 }
 
 fn empty_library_file() -> LocalAnimeLibraryFile {
@@ -234,11 +432,12 @@ fn now_unix() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        load_local_library, remove_local_library_entry, save_local_library_entry,
-        update_episode_progress,
+        load_local_library, remove_local_library_entry, repair_library_entry_paths,
+        save_local_library_entry, update_episode_progress,
     };
     use crate::domain::{
-        LibraryEpisodeRecord, MatchStatus, OrganizeMode, RemoveLocalLibraryEntryRequest,
+        AnimeSubMap, AnimeSubMapEpisode, EmbeddedSubtitleTrack, LanguageCode, LibraryEpisodeRecord,
+        MatchStatus, OrganizeMode, RemoveLocalLibraryEntryRequest, RepairLibraryEntryPathsRequest,
         SaveLocalLibraryRequest, UpdateLibraryEpisodeProgressRequest, WatchStatus,
     };
     use std::error::Error;
@@ -308,6 +507,9 @@ mod tests {
             loaded.entries[0].episodes[0].watch_status,
             WatchStatus::Unwatched
         );
+        assert!(loaded.entries[0].episodes[0]
+            .embedded_subtitle_tracks
+            .is_empty());
         Ok(())
     }
 
@@ -353,6 +555,61 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn repairs_library_episode_paths_from_project_map() -> Result<(), Box<dyn Error>> {
+        let temp = tempdir()?;
+        let library_path = temp.path().join("anime-library.json");
+        let output_dir = temp.path().join("Dealing S01");
+        let video_dir = output_dir.join("videos");
+        let subtitle_dir = output_dir.join("subs").join("ja");
+        fs::create_dir_all(&video_dir)?;
+        fs::create_dir_all(&subtitle_dir)?;
+        fs::write(video_dir.join("Dealing S01E01.mkv"), "video")?;
+        fs::write(subtitle_dir.join("Dealing S01E01.ja.srt"), "subtitle")?;
+
+        let mut request = request(output_dir.clone());
+        request.episodes[0].video_path = Some(temp.path().join("old").join("Dealing S01E01.mkv"));
+        request.episodes[0].secondary_subtitle_path =
+            Some(temp.path().join("old").join("Dealing S01E01.ja.srt"));
+        let saved = save_local_library_entry(&library_path, request)?;
+
+        let project_map = AnimeSubMap {
+            app_version: "0.1.0".to_owned(),
+            project_name: "Dealing".to_owned(),
+            season: "S01".to_owned(),
+            output_dir: output_dir.clone(),
+            primary_language: LanguageCode::ZhHans,
+            secondary_language: Some(LanguageCode::Ja),
+            episodes: vec![AnimeSubMapEpisode {
+                episode_key: "S01E01".to_owned(),
+                video: Some(std::path::PathBuf::from("videos/Dealing S01E01.mkv")),
+                primary_subtitle: None,
+                secondary_subtitle: Some(std::path::PathBuf::from("subs/ja/Dealing S01E01.ja.srt")),
+                additional_subtitles: Vec::new(),
+            }],
+        };
+        fs::write(
+            output_dir.join("anime-sub-map.json"),
+            serde_json::to_string_pretty(&project_map)?,
+        )?;
+
+        let repaired = repair_library_entry_paths(
+            &library_path,
+            RepairLibraryEntryPathsRequest { entry_id: saved.id },
+        )?;
+
+        assert_eq!(repaired.repaired_episode_count, 1);
+        assert_eq!(
+            repaired.entry.episodes[0].video_path,
+            Some(video_dir.join("Dealing S01E01.mkv"))
+        );
+        assert_eq!(
+            repaired.entry.episodes[0].secondary_subtitle_path,
+            Some(subtitle_dir.join("Dealing S01E01.ja.srt"))
+        );
+        Ok(())
+    }
+
     fn request(output_dir: std::path::PathBuf) -> SaveLocalLibraryRequest {
         SaveLocalLibraryRequest {
             project_name: "Jujutsu Kaisen".to_owned(),
@@ -372,6 +629,13 @@ mod tests {
                 last_position_sec: None,
                 progress_percent: None,
                 updated_at_unix: 0,
+                embedded_subtitle_tracks: vec![EmbeddedSubtitleTrack {
+                    id: 2,
+                    language: LanguageCode::Ja,
+                    language_tag: Some("ja".to_owned()),
+                    title: Some("Japanese".to_owned()),
+                    codec: Some("ass".to_owned()),
+                }],
             }],
         }
     }

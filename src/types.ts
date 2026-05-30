@@ -253,6 +253,14 @@ export interface OrganizeProgressEvent {
   message: string;
 }
 
+export interface EmbeddedSubtitleTrack {
+  id: number;
+  language: LanguageCode;
+  languageTag: string | null;
+  title: string | null;
+  codec: string | null;
+}
+
 export interface LibraryEpisodeRecord {
   episodeKey: string;
   videoPath: string | null;
@@ -264,6 +272,7 @@ export interface LibraryEpisodeRecord {
   lastPositionSec: number | null;
   progressPercent: number | null;
   updatedAtUnix: number;
+  embeddedSubtitleTracks?: EmbeddedSubtitleTrack[];
 }
 
 export interface SaveLocalLibraryRequest {
@@ -278,6 +287,34 @@ export interface SaveLocalLibraryRequest {
 
 export interface RemoveLocalLibraryEntryRequest {
   entryId: string;
+}
+
+export interface RepairLibraryEntryPathsRequest {
+  entryId: string;
+}
+
+export interface RepairLibraryEntryPathsResult {
+  entry: LocalAnimeLibraryEntry;
+  repairedEpisodeCount: number;
+  missingEpisodeCount: number;
+  mapFilePath: string;
+}
+
+export interface ScanEmbeddedSubtitleTracksRequest {
+  entryId: string;
+}
+
+export interface EmbeddedSubtitleScanFailure {
+  episodeKey: string;
+  message: string;
+}
+
+export interface ScanEmbeddedSubtitleTracksResult {
+  entry: LocalAnimeLibraryEntry;
+  scannedEpisodeCount: number;
+  embeddedSubtitleCount: number;
+  episodesWithoutEmbeddedSubtitles: number;
+  failedEpisodes: EmbeddedSubtitleScanFailure[];
 }
 
 export interface LocalAnimeLibraryEntry {

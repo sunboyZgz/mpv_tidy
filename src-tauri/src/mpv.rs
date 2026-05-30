@@ -1,4 +1,4 @@
-use crate::domain::{MpvLaunchRequest, MpvLaunchResult};
+use crate::domain::{EmbeddedSubtitleTrack, LanguageCode, MpvLaunchRequest, MpvLaunchResult};
 use crate::error::{AppError, AppResult};
 use serde_json::{json, Value};
 use std::fs::OpenOptions;
@@ -296,9 +296,82 @@ pub fn reveal(path: &Path) -> AppResult<()> {
     Ok(())
 }
 
+pub fn scan_embedded_subtitle_tracks(
+    mpv_path: &Path,
+    video_path: &Path,
+) -> AppResult<Vec<EmbeddedSubtitleTrack>> {
+    if !video_path.is_file() {
+        return Err(AppError::MissingFile(video_path.to_path_buf()));
+    }
+
+    let ipc_pipe_path = next_ipc_pipe_path();
+    let mut child = Command::new(mpv_path)
+        .arg("--idle=yes")
+        .arg("--pause=yes")
+        .arg("--sub-auto=no")
+        .arg(format!("--input-ipc-server={ipc_pipe_path}"))
+        .arg(video_path)
+        .spawn()
+        .map_err(|error| AppError::MpvLaunch(error.to_string()))?;
+
+    let scan_result = scan_embedded_subtitle_tracks_from_running_mpv(&ipc_pipe_path, video_path);
+    let cleanup_result = stop_temporary_mpv(&ipc_pipe_path, &mut child);
+
+    match (scan_result, cleanup_result) {
+        (Ok(tracks), Ok(())) => Ok(tracks),
+        (Err(error), Ok(())) => Err(error),
+        (Ok(_), Err(error)) => Err(error),
+        (Err(error), Err(cleanup_error)) => Err(AppError::MpvLaunch(format!(
+            "{error}; temporary MPV cleanup failed: {cleanup_error}"
+        ))),
+    }
+}
+
+fn scan_embedded_subtitle_tracks_from_running_mpv(
+    pipe_path: &str,
+    video_path: &Path,
+) -> AppResult<Vec<EmbeddedSubtitleTrack>> {
+    println!(
+        "scan embedded subtitles from video: {}",
+        video_path.display()
+    );
+    wait_for_video_track_list_ready(pipe_path, video_path)?;
+    let tracks = wait_for_any_track_list_ready(pipe_path)?;
+    Ok(embedded_subtitle_tracks_from_track_list(&tracks))
+}
+
+fn stop_temporary_mpv(pipe_path: &str, child: &mut Child) -> AppResult<()> {
+    let quit_error = send_ipc_request(pipe_path, json!(["quit"])).err();
+    for _ in 0..IPC_CONNECT_RETRY_COUNT {
+        match child.try_wait()? {
+            Some(_) => return Ok(()),
+            None => thread::sleep(IPC_CONNECT_RETRY_DELAY),
+        }
+    }
+
+    child.kill()?;
+    child.wait()?;
+    if let Some(error) = quit_error {
+        println!("temporary MPV quit command did not finish cleanly: {error}");
+    }
+    Ok(())
+}
+
 fn validate_launch_request(request: &MpvLaunchRequest) -> AppResult<()> {
     if !request.video_path.is_file() {
         return Err(AppError::MissingFile(request.video_path.to_path_buf()));
+    }
+    if request.primary_subtitle.is_some() && request.primary_embedded_subtitle_track_id.is_some() {
+        return Err(AppError::MpvLaunch(
+            "主字幕不能同时选择外部字幕和内封字幕".to_owned(),
+        ));
+    }
+    if request.secondary_subtitle.is_some()
+        && request.secondary_embedded_subtitle_track_id.is_some()
+    {
+        return Err(AppError::MpvLaunch(
+            "副字幕不能同时选择外部字幕和内封字幕".to_owned(),
+        ));
     }
     if let Some(primary) = &request.primary_subtitle {
         ensure_subtitle_exists(primary)?;
@@ -377,9 +450,35 @@ fn wait_for_track_list_ready(pipe_path: &str, request: &MpvLaunchRequest) -> App
         "actual_external_subtitle_count = {}",
         external_subtitle_count(&last_tracks)
     );
+    println!(
+        "requested primary_embedded_subtitle_track_id = {:?}",
+        request.primary_embedded_subtitle_track_id
+    );
+    println!(
+        "requested secondary_embedded_subtitle_track_id = {:?}",
+        request.secondary_embedded_subtitle_track_id
+    );
 
     Err(AppError::MpvLaunch(
-        "MPV track-list was not ready for requested external subtitles".to_owned(),
+        "MPV track-list was not ready for requested subtitles".to_owned(),
+    ))
+}
+
+fn wait_for_any_track_list_ready(pipe_path: &str) -> AppResult<Value> {
+    let mut last_tracks = Value::Null;
+    for _ in 0..IPC_RETRY_COUNT {
+        let tracks = send_ipc_request(pipe_path, json!(["get_property", "track-list"]))?;
+        if track_list_has_video(&tracks) {
+            return Ok(tracks);
+        }
+        last_tracks = tracks;
+        thread::sleep(IPC_RETRY_DELAY);
+    }
+
+    println!("========== MPV track-list timeout snapshot ==========");
+    dump_track_list(&last_tracks);
+    Err(AppError::MpvLaunch(
+        "MPV track-list was not ready for embedded subtitle scan".to_owned(),
     ))
 }
 
@@ -455,17 +554,32 @@ fn track_list_ready_for_request(track_list: &Value, request: &MpvLaunchRequest) 
 fn track_list_contains_requested_subtitles(track_list: &Value, request: &MpvLaunchRequest) -> bool {
     let tracks = parse_subtitle_tracks(track_list);
 
-    let primary_ok = match &request.primary_subtitle {
-        Some(primary) => find_subtitle_track_id_by_path(&tracks, primary).is_some(),
-        None => true,
-    };
-
-    let secondary_ok = match &request.secondary_subtitle {
-        Some(secondary) => find_subtitle_track_id_by_path(&tracks, secondary).is_some(),
-        None => true,
-    };
+    let primary_ok = requested_subtitle_track_exists(
+        &tracks,
+        request.primary_subtitle.as_deref(),
+        request.primary_embedded_subtitle_track_id,
+    );
+    let secondary_ok = requested_subtitle_track_exists(
+        &tracks,
+        request.secondary_subtitle.as_deref(),
+        request.secondary_embedded_subtitle_track_id,
+    );
 
     primary_ok && secondary_ok
+}
+
+fn requested_subtitle_track_exists(
+    tracks: &[MpvSubtitleTrack],
+    external_path: Option<&Path>,
+    embedded_track_id: Option<i64>,
+) -> bool {
+    if let Some(path) = external_path {
+        return find_subtitle_track_id_by_path(tracks, path).is_some();
+    }
+    if let Some(track_id) = embedded_track_id {
+        return find_embedded_subtitle_track_id(tracks, track_id).is_some();
+    }
+    true
 }
 
 fn parse_subtitle_tracks(track_list: &Value) -> Vec<MpvSubtitleTrack> {
@@ -569,12 +683,104 @@ fn find_subtitle_track_id_by_path(
     })
 }
 
+fn find_embedded_subtitle_track_id(tracks: &[MpvSubtitleTrack], track_id: i64) -> Option<i64> {
+    tracks
+        .iter()
+        .find(|track| !track.external && track.id == track_id)
+        .map(|track| track.id)
+}
+
+fn embedded_subtitle_tracks_from_track_list(track_list: &Value) -> Vec<EmbeddedSubtitleTrack> {
+    parse_subtitle_tracks(track_list)
+        .into_iter()
+        .filter(|track| !track.external)
+        .map(|track| EmbeddedSubtitleTrack {
+            id: track.id,
+            language: infer_embedded_subtitle_language(&track),
+            language_tag: track.lang.clone(),
+            title: track.title,
+            codec: track.codec,
+        })
+        .collect()
+}
+
+fn infer_embedded_subtitle_language(track: &MpvSubtitleTrack) -> LanguageCode {
+    for text in [
+        track.lang.as_deref(),
+        track.title.as_deref(),
+        track.filename.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let language = language_code_from_track_text(text);
+        if language != LanguageCode::Und {
+            return language;
+        }
+    }
+    LanguageCode::Und
+}
+
+fn language_code_from_track_text(text: &str) -> LanguageCode {
+    let lower = text.trim().to_lowercase();
+    if lower.is_empty() {
+        return LanguageCode::Und;
+    }
+    if lower == "zh"
+        || lower == "zho"
+        || lower == "chi"
+        || lower == "cn"
+        || lower == "zh-hans"
+        || lower == "zh-cn"
+        || lower == "zh_cn"
+        || lower.starts_with("zh-cn")
+        || lower.starts_with("zh-sg")
+        || lower.starts_with("zh-hans")
+        || lower == "chs"
+        || lower == "sc"
+        || lower.contains("simplified")
+    {
+        return LanguageCode::ZhHans;
+    }
+    if lower == "tw"
+        || lower == "zh-hant"
+        || lower == "zh-tw"
+        || lower == "zh_tw"
+        || lower == "zh-hk"
+        || lower == "zh-mo"
+        || lower.starts_with("zh-tw")
+        || lower.starts_with("zh-hk")
+        || lower.starts_with("zh-mo")
+        || lower.starts_with("zh-hant")
+        || lower == "cht"
+        || lower == "tc"
+        || lower.contains("traditional")
+    {
+        return LanguageCode::ZhHant;
+    }
+    if lower == "ja"
+        || lower == "jp"
+        || lower == "jpn"
+        || lower.starts_with("ja-")
+        || lower.contains("japanese")
+    {
+        return LanguageCode::Ja;
+    }
+    if lower == "en" || lower == "eng" || lower.starts_with("en-") || lower.contains("english") {
+        return LanguageCode::En;
+    }
+    LanguageCode::Und
+}
+
 fn resolve_requested_subtitle_track_ids(
     request: &MpvLaunchRequest,
     tracks: &[MpvSubtitleTrack],
 ) -> AppResult<(Option<i64>, Option<i64>)> {
-    let primary_track_id = match &request.primary_subtitle {
-        Some(primary) => {
+    let primary_track_id = match (
+        request.primary_subtitle.as_ref(),
+        request.primary_embedded_subtitle_track_id,
+    ) {
+        (Some(primary), None) => {
             let track_id = find_subtitle_track_id_by_path(tracks, primary).ok_or_else(|| {
                 AppError::MpvLaunch(format!(
                     "未在 MPV track-list 中找到主字幕：{}",
@@ -583,11 +789,27 @@ fn resolve_requested_subtitle_track_ids(
             })?;
             Some(track_id)
         }
-        None => None,
+        (None, Some(track_id)) => {
+            find_embedded_subtitle_track_id(tracks, track_id).ok_or_else(|| {
+                AppError::MpvLaunch(format!(
+                    "未在 MPV track-list 中找到内封主字幕 track id {track_id}"
+                ))
+            })?;
+            Some(track_id)
+        }
+        (None, None) => None,
+        (Some(_), Some(_)) => {
+            return Err(AppError::MpvLaunch(
+                "主字幕不能同时选择外部字幕和内封字幕".to_owned(),
+            ));
+        }
     };
 
-    let secondary_track_id = match &request.secondary_subtitle {
-        Some(secondary) => {
+    let secondary_track_id = match (
+        request.secondary_subtitle.as_ref(),
+        request.secondary_embedded_subtitle_track_id,
+    ) {
+        (Some(secondary), None) => {
             let track_id = find_subtitle_track_id_by_path(tracks, secondary).ok_or_else(|| {
                 AppError::MpvLaunch(format!(
                     "未在 MPV track-list 中找到副字幕：{}",
@@ -596,7 +818,20 @@ fn resolve_requested_subtitle_track_ids(
             })?;
             Some(track_id)
         }
-        None => None,
+        (None, Some(track_id)) => {
+            find_embedded_subtitle_track_id(tracks, track_id).ok_or_else(|| {
+                AppError::MpvLaunch(format!(
+                    "未在 MPV track-list 中找到内封副字幕 track id {track_id}"
+                ))
+            })?;
+            Some(track_id)
+        }
+        (None, None) => None,
+        (Some(_), Some(_)) => {
+            return Err(AppError::MpvLaunch(
+                "副字幕不能同时选择外部字幕和内封字幕".to_owned(),
+            ));
+        }
     };
 
     if primary_track_id.is_some()
@@ -842,8 +1077,14 @@ fn bring_process_to_front(_process_id: u32) {}
 
 #[cfg(test)]
 mod tests {
-    use super::{external_subtitle_count, parse_subtitle_tracks, track_list_has_video};
+    use super::{
+        embedded_subtitle_tracks_from_track_list, external_subtitle_count,
+        find_embedded_subtitle_track_id, language_code_from_track_text, parse_subtitle_tracks,
+        track_list_has_video, track_list_ready_for_request,
+    };
+    use crate::domain::{LanguageCode, MpvLaunchRequest};
     use serde_json::json;
+    use std::path::PathBuf;
 
     #[test]
     fn detects_video_track_list_readiness() {
@@ -889,5 +1130,77 @@ mod tests {
         ]);
 
         assert_eq!(external_subtitle_count(&tracks), 2);
+    }
+
+    #[test]
+    fn extracts_only_embedded_subtitle_tracks() {
+        let tracks = json!([
+            { "id": 1, "type": "video" },
+            { "id": 2, "type": "sub", "external": false, "lang": "jpn", "title": "Japanese", "codec": "ass" },
+            { "id": 3, "type": "sub", "external": true, "external-filename": "D:/Anime/Subs/en.srt" }
+        ]);
+
+        let embedded = embedded_subtitle_tracks_from_track_list(&tracks);
+
+        assert_eq!(embedded.len(), 1);
+        assert_eq!(embedded[0].id, 2);
+        assert_eq!(embedded[0].language, LanguageCode::Ja);
+        assert_eq!(embedded[0].language_tag.as_deref(), Some("jpn"));
+        assert_eq!(embedded[0].codec.as_deref(), Some("ass"));
+    }
+
+    #[test]
+    fn infers_embedded_track_language_from_common_text() {
+        assert_eq!(
+            language_code_from_track_text("English subs"),
+            LanguageCode::En
+        );
+        assert_eq!(
+            language_code_from_track_text("zh-Hant"),
+            LanguageCode::ZhHant
+        );
+        assert_eq!(language_code_from_track_text("en-US"), LanguageCode::En);
+        assert_eq!(language_code_from_track_text("zh-HK"), LanguageCode::ZhHant);
+        assert_eq!(language_code_from_track_text("chi"), LanguageCode::ZhHans);
+        assert_eq!(language_code_from_track_text("chs"), LanguageCode::ZhHans);
+        assert_eq!(language_code_from_track_text("jpn"), LanguageCode::Ja);
+        assert_eq!(language_code_from_track_text("deu"), LanguageCode::Und);
+    }
+
+    #[test]
+    fn finds_embedded_subtitle_track_by_id() {
+        let tracks = parse_subtitle_tracks(&json!([
+            { "id": 1, "type": "sub", "external": true },
+            { "id": 2, "type": "sub", "external": false }
+        ]));
+
+        assert_eq!(find_embedded_subtitle_track_id(&tracks, 2), Some(2));
+        assert_eq!(find_embedded_subtitle_track_id(&tracks, 1), None);
+    }
+
+    #[test]
+    fn track_list_waits_for_requested_embedded_subtitle_id() {
+        let request = MpvLaunchRequest {
+            mpv_path: PathBuf::from("mpv"),
+            video_path: PathBuf::from("S01E01.mkv"),
+            primary_subtitle: None,
+            secondary_subtitle: None,
+            primary_embedded_subtitle_track_id: Some(3),
+            secondary_embedded_subtitle_track_id: None,
+            primary_subtitle_delay_seconds: None,
+            secondary_subtitle_delay_seconds: None,
+            extra_args: Vec::new(),
+        };
+        let missing = json!([
+            { "id": 1, "type": "video" },
+            { "id": 2, "type": "sub", "external": false }
+        ]);
+        let ready = json!([
+            { "id": 1, "type": "video" },
+            { "id": 3, "type": "sub", "external": false }
+        ]);
+
+        assert!(!track_list_ready_for_request(&missing, &request));
+        assert!(track_list_ready_for_request(&ready, &request));
     }
 }

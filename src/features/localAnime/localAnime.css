@@ -387,6 +387,8 @@
   margin-top: auto;
 }
 
+.repair-paths-button,
+.scan-embedded-button,
 .edit-info-button,
 .remove-library-button {
   display: inline-flex;
@@ -401,16 +403,46 @@
   color: #eef3ff;
 }
 
+.repair-paths-button {
+  width: 126px;
+  border-color: rgba(116, 237, 171, 0.34);
+  color: #d8ffe9;
+}
+
+.scan-embedded-button {
+  width: 156px;
+  border-color: rgba(95, 212, 255, 0.34);
+  color: #d9f4ff;
+}
+
+.repair-paths-button:disabled,
+.scan-embedded-button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
 .remove-library-button {
   width: 120px;
   border-color: rgba(255, 112, 145, 0.36);
   color: #ffb8c8;
 }
 
+.repair-paths-button:hover,
+.scan-embedded-button:hover,
 .edit-info-button:hover,
 .remove-library-button:hover {
   border-color: rgba(219, 99, 174, 0.56);
   color: #ffffff;
+}
+
+.spin-icon {
+  animation: local-anime-spin 900ms linear infinite;
+}
+
+@keyframes local-anime-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .cover-block {

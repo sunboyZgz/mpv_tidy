@@ -1,8 +1,10 @@
 use crate::domain::{
     AppSettings, BuildOrganizePlanRequest, MpvLaunchRequest, OrganizeExecutionResult, OrganizePlan,
-    ParseTrainingSample, ProjectConfig, RemoveLocalLibraryEntryRequest, SaveLocalLibraryRequest,
-    SaveParseTrainingSampleRequest, ScanAndMatchResult, ScanInput, SettingsStoragePaths,
-    SubtitlePreferenceSnapshot, TokenFeatures, UpdateLibraryEpisodeProgressRequest,
+    ParseTrainingSample, ProjectConfig, RemoveLocalLibraryEntryRequest,
+    RepairLibraryEntryPathsRequest, RepairLibraryEntryPathsResult, SaveLocalLibraryRequest,
+    SaveParseTrainingSampleRequest, ScanAndMatchResult, ScanEmbeddedSubtitleTracksRequest,
+    ScanEmbeddedSubtitleTracksResult, ScanInput, SettingsStoragePaths, SubtitlePreferenceSnapshot,
+    TokenFeatures, UpdateLibraryEpisodeProgressRequest,
 };
 use crate::error::{to_user_error, AppError};
 use crate::{crf::CrfSlotTagger, library, matcher, mpv, organizer, scanner, settings, training};
@@ -111,12 +113,42 @@ pub fn remove_local_library_entry(
 }
 
 #[tauri::command]
+pub fn repair_library_entry_paths(
+    app: tauri::AppHandle,
+    request: RepairLibraryEntryPathsRequest,
+) -> Result<RepairLibraryEntryPathsResult, String> {
+    let library_path = local_library_path(&app).map_err(to_user_error)?;
+    library::repair_library_entry_paths(&library_path, request).map_err(to_user_error)
+}
+
+#[tauri::command]
 pub fn update_library_episode_progress(
     app: tauri::AppHandle,
     request: UpdateLibraryEpisodeProgressRequest,
 ) -> Result<crate::domain::LocalAnimeLibraryEntry, String> {
     let library_path = local_library_path(&app).map_err(to_user_error)?;
     library::update_episode_progress(&library_path, request).map_err(to_user_error)
+}
+
+#[tauri::command]
+pub async fn scan_embedded_subtitle_tracks(
+    app: tauri::AppHandle,
+    request: ScanEmbeddedSubtitleTracksRequest,
+) -> Result<ScanEmbeddedSubtitleTracksResult, String> {
+    let data_dir = app_data_dir(&app).map_err(to_user_error)?;
+    let settings_path = app_settings_path(&app).map_err(to_user_error)?;
+    let app_settings =
+        settings::load_app_settings(&settings_path, &data_dir).map_err(to_user_error)?;
+    let library_path = local_library_path(&app).map_err(to_user_error)?;
+    let mpv_path = app_settings.mpv_executable_path;
+    let handle = tauri::async_runtime::spawn_blocking(move || {
+        library::scan_embedded_subtitle_tracks(&library_path, &mpv_path, request)
+    });
+
+    match handle.await {
+        Ok(result) => result.map_err(to_user_error),
+        Err(error) => Err(to_user_error(AppError::LibrarySave(error.to_string()))),
+    }
 }
 
 #[tauri::command]

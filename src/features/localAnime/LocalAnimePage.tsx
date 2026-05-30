@@ -1,11 +1,29 @@
-import { ChevronLeft, ChevronRight, Edit3, FolderOpen, Minus, Play, Plus, RefreshCcw, RotateCcw, Search, Trash2, X } from "lucide-react";
+import {
+  Captions,
+  ChevronLeft,
+  ChevronRight,
+  Edit3,
+  FolderOpen,
+  Loader2,
+  Minus,
+  Play,
+  Plus,
+  RefreshCcw,
+  RotateCcw,
+  Search,
+  Trash2,
+  Wrench,
+  X,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   launchMpv,
   loadAppSettings,
   loadLocalLibrary,
   removeLocalLibraryEntry,
+  repairLibraryEntryPaths,
   revealPath as revealPathCommand,
+  scanEmbeddedSubtitleTracks,
   updateLibraryEpisodeProgress,
 } from "../../services/tauriCommands";
 import {
@@ -17,7 +35,7 @@ import {
   splitTextList,
   unique,
 } from "../../shared/utils";
-import type { LanguageCode, LibraryEpisodeRecord, LocalAnimeLibraryEntry } from "../../types";
+import type { EmbeddedSubtitleTrack, LanguageCode, LibraryEpisodeRecord, LocalAnimeLibraryEntry } from "../../types";
 import type { AppSettings, WatchStatus } from "../../types";
 import "./localAnime.css";
 
@@ -31,9 +49,13 @@ interface DrawerState {
 
 interface LocalSubtitle {
   id: string;
-  path: string;
+  source: "external" | "embedded";
+  path?: string;
+  trackId?: number;
   language: LanguageCode;
+  languageTag?: string;
   format: SubtitleFormat;
+  title?: string;
   role?: "primary" | "secondary" | "candidate";
 }
 
@@ -158,6 +180,8 @@ export function LocalAnimePage({
   const [rememberOffset, setRememberOffset] = useState(true);
   const [offsetPrefs, setOffsetPrefs] = useState<Record<string, DirectorySubtitleOffsetPreference>>({});
   const [isLaunching, setIsLaunching] = useState(false);
+  const [scanningEmbeddedEntryId, setScanningEmbeddedEntryId] = useState<string | null>(null);
+  const [repairingEntryId, setRepairingEntryId] = useState<string | null>(null);
   const [appSettings, setAppSettings] = useState<AppSettings>(fallbackAppSettings);
   const [panelMessage, setPanelMessage] = useState("选择剧集后可调整字幕并启动 MPV。");
   const [editingAnime, setEditingAnime] = useState<LocalAnimeEntryUi | null>(null);
@@ -377,8 +401,12 @@ export function LocalAnimePage({
       const result = await launchMpv({
         mpvPath: appSettings.mpvExecutablePath,
         videoPath: selectedEpisode.videoPath,
-        primarySubtitle: selectedPrimarySubtitle?.path ?? null,
-        secondarySubtitle: selectedSecondarySubtitle?.path ?? null,
+        primarySubtitle: selectedPrimarySubtitle?.source === "external" ? selectedPrimarySubtitle.path ?? null : null,
+        secondarySubtitle: selectedSecondarySubtitle?.source === "external" ? selectedSecondarySubtitle.path ?? null : null,
+        primaryEmbeddedSubtitleTrackId:
+          selectedPrimarySubtitle?.source === "embedded" ? selectedPrimarySubtitle.trackId ?? null : null,
+        secondaryEmbeddedSubtitleTrackId:
+          selectedSecondarySubtitle?.source === "embedded" ? selectedSecondarySubtitle.trackId ?? null : null,
         primarySubtitleDelaySeconds: primaryOffset,
         secondarySubtitleDelaySeconds: secondaryOffset,
         extraArgs,
@@ -445,6 +473,82 @@ export function LocalAnimePage({
       await revealPathCommand(path);
     } catch (error) {
       setPanelMessage(String(error));
+    }
+  }
+
+  function revealSelectedSubtitle() {
+    if (!selectedPrimarySubtitle) {
+      setPanelMessage("当前未选择字幕。");
+      return;
+    }
+    if (selectedPrimarySubtitle.source === "embedded") {
+      setPanelMessage("内封字幕没有独立文件位置。");
+      showToast("内封字幕没有独立文件位置");
+      return;
+    }
+    void revealPath(selectedPrimarySubtitle.path, "字幕");
+  }
+
+  async function scanEmbeddedSubtitles(entry: LocalAnimeEntryUi) {
+    if (scanningEmbeddedEntryId) {
+      return;
+    }
+    if (!isTauriRuntime()) {
+      showToast("浏览器预览中无法识别内封字幕");
+      return;
+    }
+
+    setScanningEmbeddedEntryId(entry.id);
+    setPanelMessage("正在识别内封字幕...");
+    try {
+      const result = await scanEmbeddedSubtitleTracks({ entryId: entry.id });
+      setLibrary((current) => upsertAnimeEntry(current, libraryEntryToUi(result.entry)));
+      const failureText =
+        result.failedEpisodes.length > 0 ? `，${result.failedEpisodes.length} 集识别失败` : "";
+      showToast(
+        `已识别内封字幕：共 ${result.embeddedSubtitleCount} 条，${result.episodesWithoutEmbeddedSubtitles} 集无内封字幕${failureText}`,
+      );
+      if (result.failedEpisodes.length > 0) {
+        setPanelMessage(
+          `部分剧集识别失败：${result.failedEpisodes
+            .slice(0, 3)
+            .map((failure) => failure.episodeKey)
+            .join(" / ")}`,
+        );
+      } else {
+        setPanelMessage("内封字幕识别完成。");
+      }
+    } catch (error) {
+      setPanelMessage(String(error));
+    } finally {
+      setScanningEmbeddedEntryId(null);
+    }
+  }
+
+  async function repairLibraryPaths(entry: LocalAnimeEntryUi) {
+    if (repairingEntryId) {
+      return;
+    }
+    if (!isTauriRuntime()) {
+      showToast("浏览器预览中无法修复目录");
+      return;
+    }
+
+    setRepairingEntryId(entry.id);
+    setPanelMessage("正在使用 anime-sub-map.json 修复本地库路径...");
+    try {
+      const result = await repairLibraryEntryPaths({ entryId: entry.id });
+      setLibrary((current) => upsertAnimeEntry(current, libraryEntryToUi(result.entry)));
+      showToast(`目录修复完成：更新 ${result.repairedEpisodeCount} 集`);
+      setPanelMessage(
+        result.missingEpisodeCount > 0
+          ? `目录修复完成，但 ${result.missingEpisodeCount} 集未在 anime-sub-map.json 中找到。`
+          : "目录修复完成，播放路径已更新。",
+      );
+    } catch (error) {
+      setPanelMessage(String(error));
+    } finally {
+      setRepairingEntryId(null);
     }
   }
 
@@ -564,6 +668,10 @@ export function LocalAnimePage({
                 entry={selectedAnime}
                 onEdit={() => selectedAnime && setEditingAnime(selectedAnime)}
                 onRemove={() => selectedAnime && void removeAnimeFromLibrary(selectedAnime)}
+                onRepairPaths={() => selectedAnime && void repairLibraryPaths(selectedAnime)}
+                onScanEmbeddedSubtitles={() => selectedAnime && void scanEmbeddedSubtitles(selectedAnime)}
+                isRepairingPaths={selectedAnime?.id === repairingEntryId}
+                isScanningEmbedded={selectedAnime?.id === scanningEmbeddedEntryId}
               />
               <EpisodeTable
                 anime={selectedAnime}
@@ -615,7 +723,7 @@ export function LocalAnimePage({
         message={panelMessage}
         onPlay={playWithMpv}
         onRevealVideo={() => revealPath(selectedEpisode?.videoPath, "视频")}
-        onRevealSubtitle={() => revealPath(selectedPrimarySubtitle?.path, "字幕")}
+        onRevealSubtitle={revealSelectedSubtitle}
       />
       {!playbackDrawerOpen && selectedEpisode && (
         <button
@@ -672,10 +780,18 @@ function AnimeDetailCard({
   entry,
   onEdit,
   onRemove,
+  onRepairPaths,
+  onScanEmbeddedSubtitles,
+  isRepairingPaths,
+  isScanningEmbedded,
 }: {
   entry: LocalAnimeEntryUi | null;
   onEdit: () => void;
   onRemove: () => void;
+  onRepairPaths: () => void;
+  onScanEmbeddedSubtitles: () => void;
+  isRepairingPaths: boolean;
+  isScanningEmbedded: boolean;
 }) {
   if (!entry) {
     return <EmptyState title="暂无本地动漫" body="请先在项目首页完成整理并保存到本地动漫" />;
@@ -697,6 +813,14 @@ function AnimeDetailCard({
         )}
         <p>{entry.description || "暂无简介，可点击编辑信息补充。"}</p>
         <div className="anime-detail-actions">
+          <button className="repair-paths-button" onClick={onRepairPaths} disabled={isRepairingPaths}>
+            {isRepairingPaths ? <Loader2 size={17} className="spin-icon" /> : <Wrench size={17} />}
+            {isRepairingPaths ? "修复中..." : "目录修复"}
+          </button>
+          <button className="scan-embedded-button" onClick={onScanEmbeddedSubtitles} disabled={isScanningEmbedded}>
+            {isScanningEmbedded ? <Loader2 size={17} className="spin-icon" /> : <Captions size={17} />}
+            {isScanningEmbedded ? "识别中..." : "识别内封字幕"}
+          </button>
           <button className="edit-info-button" onClick={onEdit}>
             <Edit3 size={17} />
             编辑信息
@@ -763,9 +887,9 @@ function EpisodeTable(props: {
                   </td>
                   <td>
                     <div className="candidate-chip-row">
-                      {unique(episode.subtitles.map((subtitle) => subtitle.language)).map((language) => (
-                        <span className={`mini-chip ${language.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} key={language}>
-                          {language}
+                      {episodeSubtitleTags(episode).map((tag) => (
+                        <span className={`mini-chip ${tag.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} key={tag}>
+                          {tag}
                         </span>
                       ))}
                     </div>
@@ -848,7 +972,7 @@ function PlaybackPanel(props: {
           onChange={props.setSecondarySubtitleId}
         />
         <div className="available-subtitles">
-          {unique(subtitles.flatMap((subtitle) => [subtitle.language, subtitle.format])).map((tag) => (
+          {unique(subtitles.flatMap((subtitle) => [subtitle.language, subtitle.format, subtitle.source === "embedded" ? "内封" : "外部"])).map((tag) => (
             <span className={`mini-chip ${String(tag).toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} key={tag}>
               {tag}
             </span>
@@ -937,7 +1061,7 @@ function SubtitleSelect(props: {
             <option value="">不使用</option>
             {props.subtitles.map((subtitle) => (
               <option value={subtitle.id} key={subtitle.id}>
-                {subtitle.language}（{subtitle.format.toUpperCase()}）
+                {subtitleDisplayLabel(subtitle)}
               </option>
             ))}
           </>
@@ -945,6 +1069,25 @@ function SubtitleSelect(props: {
       </select>
     </label>
   );
+}
+
+function subtitleDisplayLabel(subtitle: LocalSubtitle) {
+  if (subtitle.source === "embedded") {
+    const languageTag = subtitle.languageTag?.trim() || subtitle.language;
+    const title = subtitle.title?.trim();
+    if (title) {
+      return `内封 #${subtitle.trackId ?? "?"} ${languageTag} - ${title}`;
+    }
+    return `内封 #${subtitle.trackId ?? "?"} ${languageTag} (${subtitle.format})`;
+  }
+  return `${subtitle.language} (${subtitle.format.toUpperCase()})`;
+}
+
+function episodeSubtitleTags(episode: LocalEpisode) {
+  return unique([
+    ...episode.subtitles.map((subtitle) => subtitle.languageTag ?? subtitle.language),
+    ...(episode.subtitles.some((subtitle) => subtitle.source === "embedded") ? ["内封"] : []),
+  ]);
 }
 
 function OffsetControl(props: { label: string; value: number; onChange: (value: number) => void }) {
@@ -1215,9 +1358,12 @@ function libraryEpisodeToUi(record: LibraryEpisodeRecord, entryId: string): Loca
   const subtitles = [
     subtitleFromPath(record.primarySubtitlePath, `${entryId}-${record.episodeKey}-primary`, "primary"),
     subtitleFromPath(record.secondarySubtitlePath, `${entryId}-${record.episodeKey}-secondary`, "secondary"),
+    ...(record.embeddedSubtitleTracks ?? []).map((track) =>
+      subtitleFromEmbeddedTrack(track, `${entryId}-${record.episodeKey}-embedded-${track.id}`),
+    ),
   ].filter((subtitle): subtitle is LocalSubtitle => Boolean(subtitle));
   const dedupedSubtitles = subtitles.filter(
-    (subtitle, index) => subtitles.findIndex((candidate) => candidate.path === subtitle.path) === index,
+    (subtitle, index) => subtitles.findIndex((candidate) => subtitleIdentity(candidate) === subtitleIdentity(subtitle)) === index,
   );
   return {
     id: `${entryId}-${record.episodeKey}`,
@@ -1237,11 +1383,29 @@ function subtitleFromPath(path: string | null, id: string, role: LocalSubtitle["
   }
   return {
     id,
+    source: "external",
     path,
     language: detectLanguageFromPath(path),
     format: subtitleFormatFromPath(path),
     role,
   };
+}
+
+function subtitleFromEmbeddedTrack(track: EmbeddedSubtitleTrack, id: string): LocalSubtitle {
+  return {
+    id,
+    source: "embedded",
+    trackId: track.id,
+    language: track.language,
+    languageTag: track.languageTag ?? undefined,
+    format: subtitleFormatFromCodec(track.codec),
+    title: track.title ?? undefined,
+    role: "candidate",
+  };
+}
+
+function subtitleIdentity(subtitle: LocalSubtitle) {
+  return subtitle.source === "embedded" ? `embedded:${subtitle.trackId ?? ""}` : `external:${subtitle.path ?? ""}`;
 }
 
 function libraryEntryId(entry: LocalAnimeLibraryEntry) {
@@ -1274,6 +1438,23 @@ function subtitleFormatFromPath(path: string): SubtitleFormat {
   const extension = pathExtension(path);
   if (extension === "ass" || extension === "srt" || extension === "ssa" || extension === "vtt") {
     return extension;
+  }
+  return "unknown";
+}
+
+function subtitleFormatFromCodec(codec: string | null): SubtitleFormat {
+  const normalized = codec?.toLowerCase() ?? "";
+  if (normalized.includes("ass")) {
+    return "ass";
+  }
+  if (normalized.includes("ssa")) {
+    return "ssa";
+  }
+  if (normalized.includes("srt") || normalized.includes("subrip")) {
+    return "srt";
+  }
+  if (normalized.includes("vtt") || normalized.includes("webvtt")) {
+    return "vtt";
   }
   return "unknown";
 }
